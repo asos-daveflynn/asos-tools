@@ -1,0 +1,20 @@
+{
+  "name": "Thread DS Sync",
+  "id": "1604263274627146183",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": [
+    "figma"
+  ],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://api.github.com",
+      "https://thread-ds-publish-proxy.vercel.app"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:3000"
+    ]
+  }
+}

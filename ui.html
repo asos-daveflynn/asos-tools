@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * { box-sizing: border-box; }
+      body { font: 12px Inter, system-ui, sans-serif; margin: 0; padding: 16px; color: #1a1a1a; }
+      h3 { margin: 0 0 12px; font-size: 13px; }
+      label { display: block; font-weight: 600; margin-bottom: 4px; margin-top: 10px; }
+      input {
+        width: 100%; padding: 7px 8px; border: 1px solid #ccc; border-radius: 4px;
+        font: 11px Inter, system-ui, sans-serif; color: #1a1a1a;
+      }
+      input:focus { outline: none; border-color: #0d99ff; }
+      .row { margin-top: 12px; display: flex; gap: 8px; }
+      button {
+        flex: 1; padding: 9px 12px; font-weight: 600; font-size: 12px;
+        cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: #f5f5f5;
+      }
+      button.primary { background: #0d99ff; color: #fff; border-color: #0d99ff; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #status { margin-top: 10px; font-size: 11px; min-height: 16px; }
+      .ok { color: #0a7a0a; }
+      .err { color: #b00020; }
+      .muted { color: #666; }
+      #settings-panel { display: none; }
+      #settings-panel.open { display: block; }
+      hr { border: none; border-top: 1px solid #e5e5e5; margin: 12px 0; }
+    </style>
+  </head>
+  <body>
+    <h3>Thread DS Sync</h3>
+
+    <!-- Main panel -->
+    <div id="main-panel">
+      <div class="row">
+        <button class="primary" id="btn-sync">Sync Current File</button>
+        <button id="btn-settings">&#9881;</button>
+      </div>
+      <div id="status" class="muted">Ready</div>
+    </div>
+
+    <hr id="divider" style="display:none" />
+
+    <!-- Settings panel -->
+    <div id="settings-panel">
+      <h3>Settings</h3>
+      <label>GitHub PAT</label>
+      <input type="password" id="inp-pat" placeholder="ghp_xxxxxxxxxxxx" />
+
+      <label>Owner</label>
+      <input type="text" id="inp-owner" placeholder="asos-daveflynn" />
+
+      <label>Repo</label>
+      <input type="text" id="inp-repo" placeholder="thread-design-system" />
+
+      <label>Branch</label>
+      <input type="text" id="inp-branch" placeholder="main" />
+
+      <div class="row" style="margin-top:14px">
+        <button id="btn-cancel">Cancel</button>
+        <button class="primary" id="btn-save">Save</button>
+      </div>
+      <div id="settings-status" class="muted" style="margin-top:8px;font-size:11px"></div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const settingsEl = document.getElementById('settings-panel');
+      const dividerEl = document.getElementById('divider');
+      const btnSync = document.getElementById('btn-sync');
+      const btnSettings = document.getElementById('btn-settings');
+      const btnSave = document.getElementById('btn-save');
+      const btnCancel = document.getElementById('btn-cancel');
+      const settingsStatusEl = document.getElementById('settings-status');
+
+      function openSettings() {
+        settingsEl.classList.add('open');
+        dividerEl.style.display = 'block';
+      }
+      function closeSettings() {
+        settingsEl.classList.remove('open');
+        dividerEl.style.display = 'none';
+      }
+
+      btnSettings.onclick = openSettings;
+      btnCancel.onclick = closeSettings;
+
+      btnSync.onclick = () => {
+        btnSync.disabled = true;
+        statusEl.className = 'muted';
+        statusEl.textContent = 'Starting…';
+        parent.postMessage({ pluginMessage: { type: 'SYNC' } }, '*');
+      };
+
+      btnSave.onclick = () => {
+        const settings = {
+          pat: document.getElementById('inp-pat').value.trim(),
+          owner: document.getElementById('inp-owner').value.trim(),
+          repo: document.getElementById('inp-repo').value.trim(),
+          branch: document.getElementById('inp-branch').value.trim() || 'main'
+        };
+        if (!settings.pat || !settings.owner || !settings.repo) {
+          settingsStatusEl.textContent = 'PAT, owner and repo are required.';
+          settingsStatusEl.className = 'err';
+          return;
+        }
+        parent.postMessage({ pluginMessage: { type: 'SAVE_SETTINGS', settings } }, '*');
+      };
+
+      window.onmessage = (event) => {
+        const msg = event.data.pluginMessage;
+        if (!msg) return;
+
+        if (msg.type === 'SETTINGS_LOADED') {
+          if (msg.settings) {
+            document.getElementById('inp-pat').value = msg.settings.pat || '';
+            document.getElementById('inp-owner').value = msg.settings.owner || '';
+            document.getElementById('inp-repo').value = msg.settings.repo || '';
+            document.getElementById('inp-branch').value = msg.settings.branch || 'main';
+            if (!msg.settings.pat) openSettings();
+          } else {
+            openSettings();
+          }
+        }
+
+        if (msg.type === 'SETTINGS_SAVED') {
+          settingsStatusEl.textContent = 'Saved!';
+          settingsStatusEl.className = 'ok';
+          setTimeout(closeSettings, 800);
+        }
+
+        if (msg.type === 'SYNC_PROGRESS') {
+          statusEl.className = 'muted';
+          statusEl.textContent = msg.message;
+        }
+
+        if (msg.type === 'SYNC_OK') {
+          btnSync.disabled = false;
+          statusEl.textContent = 'Synced successfully \u2713  (sync #' + msg.syncVersion + ')';
+          statusEl.className = 'ok';
+        }
+
+        if (msg.type === 'SYNC_ERR') {
+          btnSync.disabled = false;
+          statusEl.textContent = 'Error: ' + msg.error;
+          statusEl.className = 'err';
+        }
+      };
+    </script>
+  </body>
+</html>
