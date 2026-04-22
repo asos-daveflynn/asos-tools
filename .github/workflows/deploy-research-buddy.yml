@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "research-buddy/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
