@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/*.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "headers": { "Access-Control-Allow-Origin": "*" },
+      "dest": "/api/$1"
+    }
+  ]
+}

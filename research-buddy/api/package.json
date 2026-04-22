@@ -1,0 +1,10 @@
+{
+  "name": "research-buddy-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vercel/node": "^3.0.0",
+    "typescript": "^5.5.3"
+  }
+}
