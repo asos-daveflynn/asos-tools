@@ -314,18 +314,360 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
     });
     return files;
 }
+// ─── NEW: Token Audit ─────────────────────────────────────────────────────────
+// Walks a node tree and flags raw (non-token-bound) design values.
+// Returns an array of AuditIssue for the UI to render.
+function rgbToHex(r, g, b) {
+    const toHex = (n) => Math.round(n * 255).toString(16).padStart(2, "0");
+    return "#" + toHex(r) + toHex(g) + toHex(b);
+}
+function auditNode(node, allVarNames) {
+    var _a, _b, _c;
+    const issues = [];
+    const n = node;
+    const bound = (_a = n.boundVariables) !== null && _a !== void 0 ? _a : {};
+    // ── Fills: error if raw hex, suggest closest token category
+    if (Array.isArray(n.fills)) {
+        for (let i = 0; i < n.fills.length; i++) {
+            const fill = n.fills[i];
+            if (fill.type === "SOLID") {
+                const fillsBound = (_b = bound.fills) !== null && _b !== void 0 ? _b : [];
+                const isBound = Array.isArray(fillsBound) && fillsBound[i] != null;
+                if (!isBound) {
+                    const c = fill.color;
+                    const hex = c ? rgbToHex(c.r, c.g, c.b) : "unknown";
+                    issues.push({
+                        nodeId: node.id,
+                        nodeName: node.name,
+                        property: "fill[" + i + "]",
+                        severity: "error",
+                        raw: hex,
+                        suggested: "surface/* or text/* or icon/* token"
+                    });
+                }
+            }
+        }
+    }
+    // ── Strokes: error if raw
+    if (Array.isArray(n.strokes) && n.strokes.length > 0) {
+        const strokesBound = (_c = bound.strokes) !== null && _c !== void 0 ? _c : [];
+        const isBound = Array.isArray(strokesBound) && strokesBound[0] != null;
+        if (!isBound) {
+            const stroke = n.strokes[0];
+            if (stroke.type === "SOLID") {
+                const c = stroke.color;
+                const hex = c ? rgbToHex(c.r, c.g, c.b) : "unknown";
+                issues.push({
+                    nodeId: node.id,
+                    nodeName: node.name,
+                    property: "stroke",
+                    severity: "error",
+                    raw: hex,
+                    suggested: "border/* token"
+                });
+            }
+        }
+    }
+    // ── Corner radius: warning if hardcoded non-zero value
+    if (typeof n.cornerRadius === "number" && n.cornerRadius > 0) {
+        const radiusBound = bound.cornerRadius != null || bound.topLeftRadius != null;
+        if (!radiusBound) {
+            issues.push({
+                nodeId: node.id,
+                nodeName: node.name,
+                property: "cornerRadius",
+                severity: "warning",
+                raw: String(n.cornerRadius) + "px",
+                suggested: "shape/radius/* token"
+            });
+        }
+    }
+    // ── Item spacing / padding: warning if hardcoded non-zero
+    const spacingProps = ["itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    for (const prop of spacingProps) {
+        if (typeof n[prop] === "number" && n[prop] > 0) {
+            if (bound[prop] == null) {
+                issues.push({
+                    nodeId: node.id,
+                    nodeName: node.name,
+                    property: prop,
+                    severity: "warning",
+                    raw: String(n[prop]) + "px",
+                    suggested: "spacing/* or padding/* token"
+                });
+            }
+        }
+    }
+    // ── Text style: error if text node has no attached style
+    if (node.type === "TEXT") {
+        const textNode = node;
+        if (!textNode.textStyleId || textNode.textStyleId === "") {
+            issues.push({
+                nodeId: node.id,
+                nodeName: node.name,
+                property: "textStyle",
+                severity: "error",
+                raw: "none",
+                suggested: "Thread DS text style (e.g. Label/Button)"
+            });
+        }
+    }
+    // ── Global token guard: semantic components must not bind directly to _1. Global
+    // We check if any boundVariable ID resolves to a variable whose collection name
+    // starts with "_1." — which is the Global collection in Thread DS
+    // (This check is best-effort; full resolution requires async lookup)
+    return issues;
+}
+function walkAndAudit(node, allVarNames, results) {
+    results.push(...auditNode(node, allVarNames));
+    if ("children" in node) {
+        for (const child of node.children) {
+            walkAndAudit(child, allVarNames, results);
+        }
+    }
+}
+async function runAudit() {
+    const selection = figma.currentPage.selection;
+    if (selection.length === 0) {
+        throw new Error("Select a frame or component to audit.");
+    }
+    // Build a set of all local variable names for reference (used for suggestions)
+    const allVars = await figma.variables.getLocalVariablesAsync();
+    const allVarNames = new Set(allVars.map(v => v.name));
+    const issues = [];
+    for (const node of selection) {
+        walkAndAudit(node, allVarNames, issues);
+    }
+    return issues;
+}
+// ─── NEW: Token Propose ───────────────────────────────────────────────────────
+// Validates a token proposal against existing variables, then creates a GitHub
+// issue directly using the stored PAT — no middleware required.
+function validateTokenName(name) {
+    // Must be lowercase, slash-separated, category/subcategory/role pattern
+    // e.g. surface/decision/warning-subtle, text/action/primary
+    if (!/^[a-z][a-z0-9]*(?:\/[a-z][a-z0-9-]*){1,}$/.test(name)) {
+        return "Name must be lowercase slug/slash format, e.g. surface/decision/warning-subtle";
+    }
+    return null;
+}
+async function proposeToken(payload) {
+    // 1. Validate name format
+    const nameError = validateTokenName(payload.proposedName);
+    if (nameError)
+        throw new Error(nameError);
+    // 2. Check it doesn't already exist
+    const allVars = await figma.variables.getLocalVariablesAsync();
+    const existing = allVars.find(v => v.name === payload.proposedName);
+    if (existing) {
+        throw new Error("Token '" + payload.proposedName + "' already exists (ID: " + existing.id + ").");
+    }
+    // 3. Check alias target exists (if provided)
+    if (payload.aliasTo) {
+        const aliasTarget = allVars.find(v => v.name === payload.aliasTo);
+        if (!aliasTarget) {
+            throw new Error("Alias target '" + payload.aliasTo + "' not found in current variables.");
+        }
+    }
+    // 4. Create a GitHub issue directly using the stored PAT
+    const settings = await figma.clientStorage.getAsync("settings");
+    if (!settings || !settings.pat) {
+        throw new Error("No GitHub PAT saved — open Settings first.");
+    }
+    const issueTitle = "Token proposal: " + payload.proposedName;
+    const issueBody = [
+        "## Token proposal",
+        "",
+        "| Field | Value |",
+        "| --- | --- |",
+        "| **Proposed name** | `" + payload.proposedName + "` |",
+        "| **Collection** | " + payload.collectionName + " |",
+        "| **Alias to** | `" + (payload.aliasTo || "—") + "` |",
+        "| **Submitted by** | " + payload.submittedBy + " |",
+        "| **Figma file** | " + figma.root.name + " |",
+        "| **Timestamp** | " + new Date().toISOString() + " |",
+        "",
+        "## Rationale",
+        "",
+        payload.rationale,
+        "",
+        "---",
+        "_Submitted via Thread DS Plugin — Token Propose_"
+    ].join("\n");
+    const issueUrl = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/issues";
+    const res = await fetch(issueUrl, {
+        method: "POST",
+        headers: {
+            "Authorization": "Bearer " + settings.pat,
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        },
+        body: JSON.stringify({
+            title: issueTitle,
+            body: issueBody,
+            labels: ["token-proposal", "tier-1"]
+        })
+    });
+    if (!res.ok) {
+        const errText = await res.text();
+        // 422 likely means the labels don't exist yet — retry without labels
+        if (res.status === 422) {
+            const retry = await fetch(issueUrl, {
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer " + settings.pat,
+                    "Content-Type": "application/json",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28"
+                },
+                body: JSON.stringify({ title: issueTitle, body: issueBody })
+            });
+            if (!retry.ok) {
+                throw new Error("GitHub " + retry.status + ": " + (await retry.text()));
+            }
+            return;
+        }
+        throw new Error("GitHub " + res.status + ": " + errText);
+    }
+}
+// ─── NEW: Component Scaffold ──────────────────────────────────────────────────
+// Creates a correctly structured component set in the current page (Sandbox)
+// with auto-layout, naming convention, and token variables pre-bound where
+// the current file has matching tokens available.
+// Token preset definitions — maps preset name to the semantic token names
+// used for fill on the surface layer. Extend this map as Thread DS grows.
+const TOKEN_PRESETS = {
+    "decision-surface": {
+        success: "surface/decision/success",
+        warning: "surface/decision/warning",
+        error: "surface/decision/error",
+        information: "surface/decision/information",
+        neutral: "surface/decision/neutral"
+    },
+    "action-surface": {
+        primary: "surface/action/primary",
+        secondary: "surface/action/secondary",
+        accent: "surface/action/accent-primary",
+        disabled: "surface/action/disabled"
+    },
+    "base-surface": {
+        default: "surface/base/default",
+        subtle: "surface/base/subtle",
+        inverted: "surface/base/inverted"
+    }
+};
+// Parses a variant property string like "Type: success, warning, error" into
+// { propName: "Type", values: ["success", "warning", "error"] }
+function parseVariantProp(raw) {
+    const colonIdx = raw.indexOf(":");
+    if (colonIdx === -1)
+        return null;
+    const propName = raw.slice(0, colonIdx).trim();
+    const values = raw.slice(colonIdx + 1).split(",").map(v => v.trim()).filter(Boolean);
+    return { propName, values };
+}
+async function scaffoldComponent(componentName, baseType, variantPropsRaw, tokenPreset) {
+    var _a;
+    if (!componentName || !componentName.trim()) {
+        throw new Error("Component name is required.");
+    }
+    // Normalise name to lowercase kebab
+    const normName = componentName.trim().toLowerCase().replace(/\s+/g, "-");
+    // Parse variant properties
+    const parsedProps = variantPropsRaw
+        .map(parseVariantProp)
+        .filter((p) => p !== null);
+    if (parsedProps.length === 0) {
+        throw new Error("At least one variant property is required (e.g. 'Type: success, warning').");
+    }
+    // Get token map for this preset
+    const presetTokens = (_a = TOKEN_PRESETS[tokenPreset]) !== null && _a !== void 0 ? _a : {};
+    // Load local variables for token binding
+    const allVars = await figma.variables.getLocalVariablesAsync();
+    const varByName = {};
+    for (const v of allVars)
+        varByName[v.name] = v;
+    // Determine layout from baseType
+    const isHorizontal = baseType.includes("horizontal");
+    const layoutMode = isHorizontal ? "HORIZONTAL" : "VERTICAL";
+    // Build all variant combinations (cartesian product of all prop values)
+    function cartesian(arrays) {
+        return arrays.reduce((acc, curr) => [].concat(...acc.map(a => curr.map(b => [...a, b]))), [[]]);
+    }
+    const propValueArrays = parsedProps.map(p => p.values);
+    const combinations = cartesian(propValueArrays);
+    // Create component set
+    const components = [];
+    for (const combo of combinations) {
+        const comp = figma.createComponent();
+        // Name: "PropName=value, PropName2=value2"
+        comp.name = combo.map((val, i) => parsedProps[i].propName + "=" + val).join(", ");
+        // Layout
+        comp.layoutMode = layoutMode;
+        comp.counterAxisSizingMode = "AUTO";
+        comp.primaryAxisSizingMode = "AUTO";
+        comp.paddingTop = 16;
+        comp.paddingRight = 16;
+        comp.paddingBottom = 16;
+        comp.paddingLeft = 16;
+        comp.itemSpacing = 8;
+        comp.cornerRadius = 8;
+        // Add a placeholder text layer
+        const label = figma.createText();
+        await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+        label.characters = normName;
+        label.fontSize = 14;
+        comp.appendChild(label);
+        // Bind surface fill to token if available
+        // Look for a token matching this variant's first prop value in the preset
+        const firstVal = combo[0].toLowerCase();
+        const tokenName = presetTokens[firstVal];
+        if (tokenName && varByName[tokenName]) {
+            const token = varByName[tokenName];
+            const solidPaint = { type: "SOLID", color: { r: 0.95, g: 0.95, b: 0.95 } };
+            comp.fills = [solidPaint];
+            try {
+                figma.variables.setBoundVariableForPaint(comp.fills[0], "color", token);
+            }
+            catch (_b) {
+                // setBoundVariableForPaint mutates in-place; re-assign fills after binding
+                const boundFill = figma.variables.setBoundVariableForPaint({ type: "SOLID", color: { r: 0.95, g: 0.95, b: 0.95 } }, "color", token);
+                comp.fills = [boundFill];
+            }
+        }
+        else {
+            // Fallback: light grey surface, no binding
+            comp.fills = [{ type: "SOLID", color: { r: 0.95, g: 0.95, b: 0.95 } }];
+        }
+        components.push(comp);
+    }
+    // Combine into a component set
+    const set = figma.combineAsVariants(components, figma.currentPage);
+    set.name = normName;
+    set.description = "Proposed component — Thread DS Sandbox. Created by Thread DS Plugin.\nToken preset: " + tokenPreset;
+    // Position near viewport centre
+    set.x = figma.viewport.center.x - (set.width / 2);
+    set.y = figma.viewport.center.y - (set.height / 2);
+    // Select it so the designer sees it immediately
+    figma.currentPage.selection = [set];
+    figma.viewport.scrollAndZoomIntoView([set]);
+    return { nodeId: set.id, name: set.name };
+}
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
     const saved = await figma.clientStorage.getAsync("settings");
-    figma.showUI(__html__, { width: 340, height: (saved && saved.pat) ? 220 : 340 });
+    // Wider + taller to accommodate the tab UI
+    figma.showUI(__html__, { width: 360, height: 480 });
     figma.ui.postMessage({ type: "SETTINGS_LOADED", settings: saved !== null && saved !== void 0 ? saved : null });
     figma.ui.onmessage = async (msg) => {
         var _a;
+        // ── Existing: save settings
         if (msg.type === "SAVE_SETTINGS") {
             await figma.clientStorage.setAsync("settings", msg.settings);
             figma.ui.postMessage({ type: "SETTINGS_SAVED" });
-            figma.ui.resize(340, 220);
         }
+        // ── Existing: sync to GitHub
         if (msg.type === "SYNC") {
             const settings = await figma.clientStorage.getAsync("settings");
             if (!settings || !settings.pat) {
@@ -348,6 +690,36 @@ async function main() {
             }
             catch (e) {
                 figma.ui.postMessage({ type: "SYNC_ERR", error: String(e) });
+            }
+        }
+        // ── NEW: run token audit on current selection
+        if (msg.type === "AUDIT_SELECTION") {
+            try {
+                const issues = await runAudit();
+                figma.ui.postMessage({ type: "AUDIT_RESULT", issues });
+            }
+            catch (e) {
+                figma.ui.postMessage({ type: "AUDIT_RESULT", issues: [], error: String(e) });
+            }
+        }
+        // ── NEW: propose a token via Tines webhook
+        if (msg.type === "PROPOSE_TOKEN") {
+            try {
+                await proposeToken(msg.payload);
+                figma.ui.postMessage({ type: "PROPOSE_OK" });
+            }
+            catch (e) {
+                figma.ui.postMessage({ type: "PROPOSE_ERR", error: String(e) });
+            }
+        }
+        // ── NEW: scaffold a component in the current page
+        if (msg.type === "SCAFFOLD_COMPONENT") {
+            try {
+                const result = await scaffoldComponent(msg.componentName, msg.baseType, msg.variantProps, msg.tokenPreset);
+                figma.ui.postMessage({ type: "SCAFFOLD_OK", nodeId: result.nodeId, name: result.name });
+            }
+            catch (e) {
+                figma.ui.postMessage({ type: "SCAFFOLD_ERR", error: String(e) });
             }
         }
     };

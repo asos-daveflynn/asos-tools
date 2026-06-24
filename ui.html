@@ -3,97 +3,385 @@
   <head>
     <meta charset="utf-8" />
     <style>
-      * { box-sizing: border-box; }
-      body { font: 12px Inter, system-ui, sans-serif; margin: 0; padding: 16px; color: #1a1a1a; }
-      h3 { margin: 0 0 12px; font-size: 13px; }
-      label { display: block; font-weight: 600; margin-bottom: 4px; margin-top: 10px; }
-      input {
-        width: 100%; padding: 7px 8px; border: 1px solid #ccc; border-radius: 4px;
-        font: 11px Inter, system-ui, sans-serif; color: #1a1a1a;
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font: 12px Inter, system-ui, sans-serif;
+        color: #1a1a1a;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
       }
-      input:focus { outline: none; border-color: #0d99ff; }
-      .row { margin-top: 12px; display: flex; gap: 8px; }
+
+      /* ── Tab nav ── */
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid #e5e5e5;
+        background: #fafafa;
+        flex-shrink: 0;
+      }
+      .tab {
+        flex: 1;
+        padding: 9px 4px;
+        font-size: 10px;
+        font-weight: 600;
+        text-align: center;
+        color: #999;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        letter-spacing: 0.3px;
+        transition: color 0.1s, border-color 0.1s;
+        user-select: none;
+      }
+      .tab:hover { color: #555; }
+      .tab.active { color: #0d99ff; border-bottom-color: #0d99ff; }
+
+      /* ── Panels ── */
+      .panels { flex: 1; overflow-y: auto; }
+      .panel { display: none; padding: 16px; }
+      .panel.active { display: block; }
+
+      /* ── Shared form elements ── */
+      label {
+        display: block;
+        font-weight: 600;
+        font-size: 11px;
+        color: #555;
+        margin-bottom: 4px;
+        margin-top: 12px;
+      }
+      label:first-child { margin-top: 0; }
+
+      input, select, textarea {
+        width: 100%;
+        padding: 7px 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font: 11px Inter, system-ui, sans-serif;
+        color: #1a1a1a;
+        background: #fff;
+        appearance: none;
+      }
+      input:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: #0d99ff;
+      }
+      input.error { border-color: #e53935; }
+      input.ok { border-color: #2e7d32; }
+
+      textarea { resize: vertical; min-height: 56px; line-height: 1.5; }
+
+      select {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        padding-right: 24px;
+      }
+
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+
       button {
-        flex: 1; padding: 9px 12px; font-weight: 600; font-size: 12px;
-        cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: #f5f5f5;
+        flex: 1;
+        padding: 8px 10px;
+        font: 600 11px Inter, system-ui, sans-serif;
+        cursor: pointer;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        background: #f5f5f5;
+        color: #1a1a1a;
+        transition: background 0.1s;
       }
+      button:hover { background: #ebebeb; }
       button.primary { background: #0d99ff; color: #fff; border-color: #0d99ff; }
-      button:disabled { opacity: 0.5; cursor: default; }
-      #status { margin-top: 10px; font-size: 11px; min-height: 16px; }
-      .ok { color: #0a7a0a; }
+      button.primary:hover { background: #0084e0; }
+      button:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
+      .status {
+        margin-top: 10px;
+        font-size: 11px;
+        min-height: 16px;
+        line-height: 1.5;
+      }
+      .ok { color: #2e7d32; }
       .err { color: #b00020; }
-      .muted { color: #666; }
-      #settings-panel { display: none; }
-      #settings-panel.open { display: block; }
+      .muted { color: #888; }
+
       hr { border: none; border-top: 1px solid #e5e5e5; margin: 12px 0; }
+
+      .hint {
+        font-size: 10px;
+        color: #aaa;
+        margin-top: 4px;
+        line-height: 1.5;
+      }
+
+      /* ── Audit results ── */
+      .audit-empty {
+        text-align: center;
+        color: #bbb;
+        font-size: 11px;
+        padding: 24px 0;
+      }
+      .audit-summary {
+        font-size: 11px;
+        color: #555;
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .audit-list { display: flex; flex-direction: column; gap: 6px; }
+      .audit-item {
+        border-radius: 4px;
+        padding: 8px 10px;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .audit-item.error { background: #fdecea; }
+      .audit-item.warning { background: #fff8e1; }
+      .audit-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .audit-item-name {
+        font-weight: 600;
+        color: #1a1a1a;
+        flex: 1;
+        word-break: break-all;
+      }
+      .audit-badge {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        padding: 2px 5px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+      .audit-badge.error { background: #e53935; color: #fff; }
+      .audit-badge.warning { background: #f57c00; color: #fff; }
+      .audit-item-detail { color: #666; margin-top: 3px; }
+      .audit-item-detail code {
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 10px;
+        background: rgba(0,0,0,0.07);
+        padding: 1px 4px;
+        border-radius: 2px;
+      }
+
+      /* ── Propose: name validation indicator ── */
+      .name-status {
+        font-size: 10px;
+        margin-top: 4px;
+        min-height: 14px;
+      }
+      .name-status.ok { color: #2e7d32; }
+      .name-status.err { color: #b00020; }
+
+      /* ── Scaffold: variant props list ── */
+      .prop-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .prop-row input { margin: 0; }
+      .prop-remove {
+        flex: 0 0 22px;
+        padding: 0;
+        width: 22px;
+        height: 22px;
+        font-size: 14px;
+        line-height: 1;
+        background: #f5f5f5;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #999;
+        flex-shrink: 0;
+      }
+      .prop-remove:hover { background: #fdecea; color: #e53935; border-color: #e53935; }
+      .add-prop {
+        font-size: 11px;
+        color: #0d99ff;
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0;
+        font-weight: 600;
+        margin-top: 4px;
+        flex: 0;
+      }
+      .add-prop:hover { text-decoration: underline; background: none; }
     </style>
   </head>
   <body>
-    <h3>Thread DS Sync</h3>
 
-    <!-- Main panel -->
-    <div id="main-panel">
-      <div class="row">
-        <button class="primary" id="btn-sync">Sync Current File</button>
-        <button id="btn-settings">&#9881;</button>
-      </div>
-      <div id="status" class="muted">Ready</div>
+    <!-- Tab nav -->
+    <div class="tabs">
+      <div class="tab active" data-tab="sync">Sync</div>
+      <div class="tab" data-tab="propose">Propose</div>
+      <div class="tab" data-tab="scaffold">Scaffold</div>
+      <div class="tab" data-tab="audit">Audit</div>
+      <div class="tab" data-tab="settings">Settings</div>
     </div>
 
-    <hr id="divider" style="display:none" />
+    <div class="panels">
 
-    <!-- Settings panel -->
-    <div id="settings-panel">
-      <h3>Settings</h3>
-      <label>GitHub PAT</label>
-      <input type="password" id="inp-pat" placeholder="ghp_xxxxxxxxxxxx" />
-
-      <label>Owner</label>
-      <input type="text" id="inp-owner" placeholder="asos-daveflynn" />
-
-      <label>Repo</label>
-      <input type="text" id="inp-repo" placeholder="thread-design-system" />
-
-      <label>Branch</label>
-      <input type="text" id="inp-branch" placeholder="main" />
-
-      <div class="row" style="margin-top:14px">
-        <button id="btn-cancel">Cancel</button>
-        <button class="primary" id="btn-save">Save</button>
+      <!-- ── SYNC ── -->
+      <div class="panel active" id="panel-sync">
+        <p style="font-size:11px;color:#666;margin-bottom:12px;line-height:1.5;">
+          Push tokens, components, icons and text styles to GitHub.
+        </p>
+        <div class="row" style="margin-top:0;">
+          <button class="primary" id="btn-sync">Sync Current File</button>
+        </div>
+        <div class="status muted" id="sync-status">Ready</div>
       </div>
-      <div id="settings-status" class="muted" style="margin-top:8px;font-size:11px"></div>
-    </div>
+
+      <!-- ── PROPOSE ── -->
+      <div class="panel" id="panel-propose">
+        <p style="font-size:11px;color:#666;margin-bottom:12px;line-height:1.5;">
+          Propose a new token. The DS team will be notified via Teams.
+        </p>
+
+        <label>Collection</label>
+        <select id="prop-collection">
+          <option value="3. Colour">3. Colour (semantic)</option>
+          <option value="4. Typography">4. Typography</option>
+          <option value="5. Spacing and Padding">5. Spacing and Padding</option>
+          <option value="6. Shape">6. Shape</option>
+          <option value="7. Elevation and Shadows">7. Elevation and Shadows</option>
+        </select>
+
+        <label>Token name</label>
+        <input type="text" id="prop-name" placeholder="surface/decision/warning-subtle" />
+        <div class="name-status" id="prop-name-status"></div>
+
+        <label>Alias to global</label>
+        <input type="text" id="prop-alias" placeholder="amber/100" />
+        <p class="hint">Must reference an existing global token name. Leave blank if not applicable.</p>
+
+        <label>Rationale</label>
+        <textarea id="prop-rationale" placeholder="Why doesn't an existing token cover this use case?"></textarea>
+
+        <label>Your name</label>
+        <input type="text" id="prop-author" placeholder="e.g. David Flynn" />
+
+        <div class="row">
+          <button class="primary" id="btn-propose" disabled>Submit proposal</button>
+        </div>
+        <div class="status muted" id="propose-status"></div>
+      </div>
+
+      <!-- ── SCAFFOLD ── -->
+      <div class="panel" id="panel-scaffold">
+        <p style="font-size:11px;color:#666;margin-bottom:12px;line-height:1.5;">
+          Create a component in this file with correct naming, auto-layout, and token bindings.
+        </p>
+
+        <label>Component name</label>
+        <input type="text" id="sc-name" placeholder="notification-card" />
+        <p class="hint">Lowercase. Will become the component set name.</p>
+
+        <label>Base layout</label>
+        <select id="sc-base">
+          <option value="surface-horizontal">Surface — horizontal</option>
+          <option value="surface-vertical">Surface — vertical</option>
+          <option value="inline-horizontal">Inline — horizontal</option>
+          <option value="inline-vertical">Inline — vertical</option>
+        </select>
+
+        <label>Token preset</label>
+        <select id="sc-preset">
+          <option value="decision-surface">Decision surface (success/warning/error/info)</option>
+          <option value="action-surface">Action surface (primary/secondary/accent)</option>
+          <option value="base-surface">Base surface (default/subtle/inverted)</option>
+          <option value="none">None — no token binding</option>
+        </select>
+
+        <label>Variant properties</label>
+        <p class="hint" style="margin-bottom:8px;">One per line, format: <code style="font-family:monospace;">PropName: value1, value2</code></p>
+        <div id="sc-props-list"></div>
+        <button class="add-prop" id="btn-add-prop">+ Add property</button>
+
+        <div class="row">
+          <button class="primary" id="btn-scaffold">Create in this file</button>
+        </div>
+        <div class="status muted" id="scaffold-status"></div>
+      </div>
+
+      <!-- ── AUDIT ── -->
+      <div class="panel" id="panel-audit">
+        <p style="font-size:11px;color:#666;margin-bottom:12px;line-height:1.5;">
+          Select a frame or component, then run the audit to find raw values that should use Thread DS tokens.
+        </p>
+
+        <div class="row" style="margin-top:0;">
+          <button class="primary" id="btn-audit">Audit selection</button>
+        </div>
+
+        <div id="audit-results" style="margin-top:14px;">
+          <div class="audit-empty">Select a layer and tap Audit</div>
+        </div>
+      </div>
+
+      <!-- ── SETTINGS ── -->
+      <div class="panel" id="panel-settings">
+        <label>GitHub PAT</label>
+        <input type="password" id="inp-pat" placeholder="ghp_xxxxxxxxxxxx" />
+
+        <label>Owner</label>
+        <input type="text" id="inp-owner" placeholder="asos-daveflynn" />
+
+        <label>Repo</label>
+        <input type="text" id="inp-repo" placeholder="thread-design-system" />
+
+        <label>Branch</label>
+        <input type="text" id="inp-branch" placeholder="main" />
+
+        <div class="row">
+          <button class="primary" id="btn-save">Save settings</button>
+        </div>
+        <div class="status muted" id="settings-status"></div>
+      </div>
+
+    </div><!-- /panels -->
 
     <script>
-      const statusEl = document.getElementById('status');
-      const settingsEl = document.getElementById('settings-panel');
-      const dividerEl = document.getElementById('divider');
+      // ── Tab switching ───────────────────────────────────────────────────────
+      const tabs = document.querySelectorAll('.tab');
+      const panels = document.querySelectorAll('.panel');
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          panels.forEach(p => p.classList.remove('active'));
+          tab.classList.add('active');
+          document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+        });
+      });
+
+      // ── Sync ───────────────────────────────────────────────────────────────
+      const syncStatus = document.getElementById('sync-status');
       const btnSync = document.getElementById('btn-sync');
-      const btnSettings = document.getElementById('btn-settings');
-      const btnSave = document.getElementById('btn-save');
-      const btnCancel = document.getElementById('btn-cancel');
-      const settingsStatusEl = document.getElementById('settings-status');
-
-      function openSettings() {
-        settingsEl.classList.add('open');
-        dividerEl.style.display = 'block';
-      }
-      function closeSettings() {
-        settingsEl.classList.remove('open');
-        dividerEl.style.display = 'none';
-      }
-
-      btnSettings.onclick = openSettings;
-      btnCancel.onclick = closeSettings;
 
       btnSync.onclick = () => {
         btnSync.disabled = true;
-        statusEl.className = 'muted';
-        statusEl.textContent = 'Starting…';
+        syncStatus.className = 'status muted';
+        syncStatus.textContent = 'Starting…';
         parent.postMessage({ pluginMessage: { type: 'SYNC' } }, '*');
       };
 
-      btnSave.onclick = () => {
+      // ── Settings ───────────────────────────────────────────────────────────
+      const settingsStatus = document.getElementById('settings-status');
+      document.getElementById('btn-save').onclick = () => {
         const settings = {
           pat: document.getElementById('inp-pat').value.trim(),
           owner: document.getElementById('inp-owner').value.trim(),
@@ -101,52 +389,245 @@
           branch: document.getElementById('inp-branch').value.trim() || 'main'
         };
         if (!settings.pat || !settings.owner || !settings.repo) {
-          settingsStatusEl.textContent = 'PAT, owner and repo are required.';
-          settingsStatusEl.className = 'err';
+          settingsStatus.textContent = 'PAT, owner and repo are required.';
+          settingsStatus.className = 'status err';
           return;
         }
         parent.postMessage({ pluginMessage: { type: 'SAVE_SETTINGS', settings } }, '*');
       };
 
+      // ── Propose ────────────────────────────────────────────────────────────
+      const propName = document.getElementById('prop-name');
+      const propNameStatus = document.getElementById('prop-name-status');
+      const proposeStatus = document.getElementById('propose-status');
+      const btnPropose = document.getElementById('btn-propose');
+
+      const TOKEN_NAME_RE = /^[a-z][a-z0-9]*(?:\/[a-z][a-z0-9-]*){1,}$/;
+
+      function validatePropName() {
+        const val = propName.value.trim();
+        const rationale = document.getElementById('prop-rationale').value.trim();
+        const author = document.getElementById('prop-author').value.trim();
+        if (!val) {
+          propNameStatus.textContent = '';
+          propNameStatus.className = 'name-status';
+          btnPropose.disabled = true;
+          return;
+        }
+        if (!TOKEN_NAME_RE.test(val)) {
+          propNameStatus.textContent = 'Use lowercase slug/slash format: surface/decision/warning-subtle';
+          propNameStatus.className = 'name-status err';
+          btnPropose.disabled = true;
+        } else {
+          propNameStatus.textContent = '✓ Name format valid';
+          propNameStatus.className = 'name-status ok';
+          btnPropose.disabled = !(rationale && author);
+        }
+      }
+
+      propName.addEventListener('input', validatePropName);
+      document.getElementById('prop-rationale').addEventListener('input', validatePropName);
+      document.getElementById('prop-author').addEventListener('input', validatePropName);
+
+      btnPropose.onclick = () => {
+        btnPropose.disabled = true;
+        proposeStatus.className = 'status muted';
+        proposeStatus.textContent = 'Validating and submitting…';
+        parent.postMessage({
+          pluginMessage: {
+            type: 'PROPOSE_TOKEN',
+            payload: {
+              collectionName: document.getElementById('prop-collection').value,
+              proposedName: propName.value.trim(),
+              aliasTo: document.getElementById('prop-alias').value.trim(),
+              rationale: document.getElementById('prop-rationale').value.trim(),
+              submittedBy: document.getElementById('prop-author').value.trim()
+            }
+          }
+        }, '*');
+      };
+
+      // ── Scaffold ───────────────────────────────────────────────────────────
+      const scaffoldStatus = document.getElementById('scaffold-status');
+      const propsList = document.getElementById('sc-props-list');
+
+      function addPropRow(value) {
+        const row = document.createElement('div');
+        row.className = 'prop-row';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.placeholder = 'Type: success, warning, error';
+        inp.value = value || '';
+        const rem = document.createElement('button');
+        rem.className = 'prop-remove';
+        rem.textContent = '×';
+        rem.onclick = () => row.remove();
+        row.appendChild(inp);
+        row.appendChild(rem);
+        propsList.appendChild(row);
+      }
+
+      // Add one default row
+      addPropRow('Type: success, warning, error, information');
+
+      document.getElementById('btn-add-prop').onclick = () => addPropRow('');
+
+      document.getElementById('btn-scaffold').onclick = () => {
+        const componentName = document.getElementById('sc-name').value.trim();
+        if (!componentName) {
+          scaffoldStatus.textContent = 'Component name is required.';
+          scaffoldStatus.className = 'status err';
+          return;
+        }
+        const variantProps = Array.from(propsList.querySelectorAll('input'))
+          .map(i => i.value.trim())
+          .filter(Boolean);
+        if (!variantProps.length) {
+          scaffoldStatus.textContent = 'Add at least one variant property.';
+          scaffoldStatus.className = 'status err';
+          return;
+        }
+        document.getElementById('btn-scaffold').disabled = true;
+        scaffoldStatus.className = 'status muted';
+        scaffoldStatus.textContent = 'Creating component…';
+        parent.postMessage({
+          pluginMessage: {
+            type: 'SCAFFOLD_COMPONENT',
+            componentName,
+            baseType: document.getElementById('sc-base').value,
+            variantProps,
+            tokenPreset: document.getElementById('sc-preset').value
+          }
+        }, '*');
+      };
+
+      // ── Audit ──────────────────────────────────────────────────────────────
+      const auditResults = document.getElementById('audit-results');
+      const btnAudit = document.getElementById('btn-audit');
+
+      btnAudit.onclick = () => {
+        btnAudit.disabled = true;
+        auditResults.innerHTML = '<div class="audit-empty">Scanning…</div>';
+        parent.postMessage({ pluginMessage: { type: 'AUDIT_SELECTION' } }, '*');
+      };
+
+      function renderAuditResults(issues, error) {
+        btnAudit.disabled = false;
+        if (error) {
+          auditResults.innerHTML = '<div class="status err">' + error + '</div>';
+          return;
+        }
+        if (!issues || issues.length === 0) {
+          auditResults.innerHTML = '<div class="audit-empty" style="color:#2e7d32;">✓ All clear — no raw values found</div>';
+          return;
+        }
+        const errors = issues.filter(i => i.severity === 'error').length;
+        const warnings = issues.filter(i => i.severity === 'warning').length;
+        let html = '<div class="audit-summary">';
+        html += '<span>' + issues.length + ' issue' + (issues.length !== 1 ? 's' : '') + ' found</span>';
+        html += '<span>';
+        if (errors) html += '<span style="color:#e53935;font-weight:600;">' + errors + ' error' + (errors !== 1 ? 's' : '') + '</span>';
+        if (errors && warnings) html += ' · ';
+        if (warnings) html += '<span style="color:#f57c00;font-weight:600;">' + warnings + ' warning' + (warnings !== 1 ? 's' : '') + '</span>';
+        html += '</span></div>';
+        html += '<div class="audit-list">';
+        for (const issue of issues) {
+          html += '<div class="audit-item ' + issue.severity + '">';
+          html += '<div class="audit-item-header">';
+          html += '<span class="audit-item-name">' + escHtml(issue.nodeName) + ' · ' + escHtml(issue.property) + '</span>';
+          html += '<span class="audit-badge ' + issue.severity + '">' + issue.severity + '</span>';
+          html += '</div>';
+          html += '<div class="audit-item-detail">';
+          html += 'Raw: <code>' + escHtml(issue.raw) + '</code> → ' + escHtml(issue.suggested);
+          html += '</div></div>';
+        }
+        html += '</div>';
+        auditResults.innerHTML = html;
+      }
+
+      function escHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // ── Message handler ────────────────────────────────────────────────────
       window.onmessage = (event) => {
         const msg = event.data.pluginMessage;
         if (!msg) return;
 
+        // Settings
         if (msg.type === 'SETTINGS_LOADED') {
           if (msg.settings) {
             document.getElementById('inp-pat').value = msg.settings.pat || '';
             document.getElementById('inp-owner').value = msg.settings.owner || '';
             document.getElementById('inp-repo').value = msg.settings.repo || '';
             document.getElementById('inp-branch').value = msg.settings.branch || 'main';
-            if (!msg.settings.pat) openSettings();
+            // If no PAT saved, open settings tab
+            if (!msg.settings.pat) switchTab('settings');
           } else {
-            openSettings();
+            switchTab('settings');
           }
         }
 
         if (msg.type === 'SETTINGS_SAVED') {
-          settingsStatusEl.textContent = 'Saved!';
-          settingsStatusEl.className = 'ok';
-          setTimeout(closeSettings, 800);
+          settingsStatus.textContent = 'Saved ✓';
+          settingsStatus.className = 'status ok';
+          setTimeout(() => { settingsStatus.textContent = ''; }, 1500);
         }
 
+        // Sync
         if (msg.type === 'SYNC_PROGRESS') {
-          statusEl.className = 'muted';
-          statusEl.textContent = msg.message;
+          syncStatus.className = 'status muted';
+          syncStatus.textContent = msg.message;
         }
-
         if (msg.type === 'SYNC_OK') {
           btnSync.disabled = false;
-          statusEl.textContent = 'Synced successfully \u2713  (sync #' + msg.syncVersion + ')';
-          statusEl.className = 'ok';
+          syncStatus.textContent = 'Synced ✓  (sync #' + msg.syncVersion + ', ' + msg.count + ' files)';
+          syncStatus.className = 'status ok';
         }
-
         if (msg.type === 'SYNC_ERR') {
           btnSync.disabled = false;
-          statusEl.textContent = 'Error: ' + msg.error;
-          statusEl.className = 'err';
+          syncStatus.textContent = 'Error: ' + msg.error;
+          syncStatus.className = 'status err';
+        }
+
+        // Propose
+        if (msg.type === 'PROPOSE_OK') {
+          proposeStatus.textContent = 'Submitted ✓ — DS team notified in Teams';
+          proposeStatus.className = 'status ok';
+          btnPropose.disabled = false;
+        }
+        if (msg.type === 'PROPOSE_ERR') {
+          proposeStatus.textContent = msg.error;
+          proposeStatus.className = 'status err';
+          btnPropose.disabled = false;
+        }
+
+        // Scaffold
+        if (msg.type === 'SCAFFOLD_OK') {
+          scaffoldStatus.textContent = 'Created "' + msg.name + '" ✓ — selected in canvas';
+          scaffoldStatus.className = 'status ok';
+          document.getElementById('btn-scaffold').disabled = false;
+        }
+        if (msg.type === 'SCAFFOLD_ERR') {
+          scaffoldStatus.textContent = msg.error;
+          scaffoldStatus.className = 'status err';
+          document.getElementById('btn-scaffold').disabled = false;
+        }
+
+        // Audit
+        if (msg.type === 'AUDIT_RESULT') {
+          renderAuditResults(msg.issues, msg.error);
         }
       };
+
+      function switchTab(name) {
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+        panels.forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+      }
     </script>
   </body>
 </html>

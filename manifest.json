@@ -11,7 +11,8 @@
   "networkAccess": {
     "allowedDomains": [
       "https://api.github.com",
-      "https://thread-ds-publish-proxy.vercel.app"
+      "https://thread-ds-publish-proxy.vercel.app",
+      "https://asos-prod.tines.com"
     ],
     "devAllowedDomains": [
       "http://localhost:3000"
