@@ -134,16 +134,21 @@ function serialiseComponentSet(node: ComponentSetNode) {
   };
 }
 
-// ─── Export SVG for first child variant ───────────────────────────────────────
-async function exportSvg(node: ComponentSetNode): Promise<string> {
-  if (!node.children || node.children.length === 0) return "";
+// ─── Export SVG for a single node ─────────────────────────────────────────────
+async function exportSvgFromNode(node: SceneNode): Promise<string> {
   try {
-    const bytes = await node.children[0].exportAsync({ format: "SVG_STRING" });
+    const bytes = await node.exportAsync({ format: "SVG_STRING" });
     if (typeof bytes === "string") return bytes;
     return String.fromCharCode(...Array.from(bytes as Uint8Array));
   } catch {
     return "";
   }
+}
+
+// ─── Export SVG thumbnail for component set (uses first child) ────────────────
+async function exportSvg(node: ComponentSetNode): Promise<string> {
+  if (!node.children || node.children.length === 0) return "";
+  return exportSvgFromNode(node.children[0] as SceneNode);
 }
 
 // ─── Export variables ─────────────────────────────────────────────────────────
@@ -238,13 +243,38 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     message: "chore: sync component-anatomy.json" + tag + tag
   });
 
-  // ── component-render-specs.json (with SVG thumbnails)
+  // ── component-render-specs.json (with per-variant SVG thumbnails)
   onProgress("Exporting component SVG thumbnails…");
   const renderSpecComponents = [];
   for (let i = 0; i < componentSets.length; i++) {
     const node = componentSets[i];
     onProgress("SVG " + (i + 1) + "/" + componentSets.length + ": " + node.name + "…");
+
+    // Component-level thumbnail (canonical/first variant)
     const svgThumbnail = await exportSvg(node);
+
+    // Per-variant SVG thumbnails
+    const variantNodes = (node.children ?? []).filter(
+      (c): c is ComponentNode => c.type === "COMPONENT"
+    );
+    const variants = [];
+    for (let j = 0; j < variantNodes.length; j++) {
+      const variantNode = variantNodes[j];
+      onProgress(
+        "SVG " + (i + 1) + "/" + componentSets.length +
+        " · variant " + (j + 1) + "/" + variantNodes.length +
+        ": " + variantNode.name + "…"
+      );
+      const variantSvg = await exportSvgFromNode(variantNode);
+      variants.push({
+        id: variantNode.id,
+        key: variantNode.key,
+        name: variantNode.name,
+        variantProperties: variantNode.variantProperties ?? {},
+        svgThumbnail: variantSvg
+      });
+    }
+
     renderSpecComponents.push({
       id: node.id,
       key: node.key,
@@ -252,16 +282,20 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
       description: node.description || "",
       componentPropertyDefinitions: node.componentPropertyDefinitions ?? {},
       variantGroupProperties: node.variantGroupProperties ?? {},
-      svgThumbnail
+      canonicalVariantId: variantNodes[0]?.id ?? node.id,
+      canonicalVariantName: variantNodes[0]?.name ?? "",
+      svgThumbnail,
+      variants
     });
   }
+
   files.push({
     path: "docs/figma-make/component-render-specs.json",
     content: JSON.stringify({
       schema: "thread.ds.component-render-specs.v1",
       generatedAt: now,
       source: { fileKey: "", fileName: figma.root.name },
-      note: "Lite render spec: SVG thumbnails + variant metadata.",
+      note: "Full render spec: per-variant SVG thumbnails + variant metadata.",
       components: renderSpecComponents
     }, null, 2),
     message: "chore: sync component-render-specs.json" + tag + tag
@@ -352,10 +386,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
   return files;
 }
 
-// ─── NEW: Token Audit ─────────────────────────────────────────────────────────
-// Walks a node tree and flags raw (non-token-bound) design values.
-// Returns an array of AuditIssue for the UI to render.
-
+// ─── Token Audit ──────────────────────────────────────────────────────────────
 function rgbToHex(r: number, g: number, b: number): string {
   const toHex = (n: number) => Math.round(n * 255).toString(16).padStart(2, "0");
   return "#" + toHex(r) + toHex(g) + toHex(b);
@@ -366,7 +397,6 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
   const n = node as unknown as Record<string, unknown>;
   const bound = (n.boundVariables as Record<string, unknown> | undefined) ?? {};
 
-  // ── Fills: error if raw hex, suggest closest token category
   if (Array.isArray(n.fills)) {
     for (let i = 0; i < (n.fills as unknown[]).length; i++) {
       const fill = (n.fills as Record<string, unknown>[])[i];
@@ -389,7 +419,6 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
     }
   }
 
-  // ── Strokes: error if raw
   if (Array.isArray(n.strokes) && (n.strokes as unknown[]).length > 0) {
     const strokesBound = (bound.strokes as unknown[] | undefined) ?? [];
     const isBound = Array.isArray(strokesBound) && strokesBound[0] != null;
@@ -410,7 +439,6 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
     }
   }
 
-  // ── Corner radius: warning if hardcoded non-zero value
   if (typeof n.cornerRadius === "number" && n.cornerRadius > 0) {
     const radiusBound = bound.cornerRadius != null || bound.topLeftRadius != null;
     if (!radiusBound) {
@@ -425,7 +453,6 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
     }
   }
 
-  // ── Item spacing / padding: warning if hardcoded non-zero
   const spacingProps = ["itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
   for (const prop of spacingProps) {
     if (typeof n[prop] === "number" && (n[prop] as number) > 0) {
@@ -442,7 +469,6 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
     }
   }
 
-  // ── Text style: error if text node has no attached style
   if (node.type === "TEXT") {
     const textNode = node as TextNode;
     if (!textNode.textStyleId || textNode.textStyleId === "") {
@@ -456,11 +482,6 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
       });
     }
   }
-
-  // ── Global token guard: semantic components must not bind directly to _1. Global
-  // We check if any boundVariable ID resolves to a variable whose collection name
-  // starts with "_1." — which is the Global collection in Thread DS
-  // (This check is best-effort; full resolution requires async lookup)
 
   return issues;
 }
@@ -479,11 +500,8 @@ async function runAudit(): Promise<AuditIssue[]> {
   if (selection.length === 0) {
     throw new Error("Select a frame or component to audit.");
   }
-
-  // Build a set of all local variable names for reference (used for suggestions)
   const allVars = await figma.variables.getLocalVariablesAsync();
   const allVarNames = new Set<string>(allVars.map(v => v.name));
-
   const issues: AuditIssue[] = [];
   for (const node of selection) {
     walkAndAudit(node, allVarNames, issues);
@@ -491,13 +509,8 @@ async function runAudit(): Promise<AuditIssue[]> {
   return issues;
 }
 
-// ─── NEW: Token Propose ───────────────────────────────────────────────────────
-// Validates a token proposal against existing variables, then creates a GitHub
-// issue directly using the stored PAT — no middleware required.
-
+// ─── Token Propose ────────────────────────────────────────────────────────────
 function validateTokenName(name: string): string | null {
-  // Must be lowercase, slash-separated, category/subcategory/role pattern
-  // e.g. surface/decision/warning-subtle, text/action/primary
   if (!/^[a-z][a-z0-9]*(?:\/[a-z][a-z0-9-]*){1,}$/.test(name)) {
     return "Name must be lowercase slug/slash format, e.g. surface/decision/warning-subtle";
   }
@@ -505,18 +518,15 @@ function validateTokenName(name: string): string | null {
 }
 
 async function proposeToken(payload: ProposePayload): Promise<void> {
-  // 1. Validate name format
   const nameError = validateTokenName(payload.proposedName);
   if (nameError) throw new Error(nameError);
 
-  // 2. Check it doesn't already exist
   const allVars = await figma.variables.getLocalVariablesAsync();
   const existing = allVars.find(v => v.name === payload.proposedName);
   if (existing) {
     throw new Error("Token '" + payload.proposedName + "' already exists (ID: " + existing.id + ").");
   }
 
-  // 3. Check alias target exists (if provided)
   if (payload.aliasTo) {
     const aliasTarget = allVars.find(v => v.name === payload.aliasTo);
     if (!aliasTarget) {
@@ -524,7 +534,6 @@ async function proposeToken(payload: ProposePayload): Promise<void> {
     }
   }
 
-  // 4. Create a GitHub issue directly using the stored PAT
   const settings = await figma.clientStorage.getAsync("settings") as Settings | undefined;
   if (!settings || !settings.pat) {
     throw new Error("No GitHub PAT saved — open Settings first.");
@@ -569,7 +578,6 @@ async function proposeToken(payload: ProposePayload): Promise<void> {
 
   if (!res.ok) {
     const errText = await res.text();
-    // 422 likely means the labels don't exist yet — retry without labels
     if (res.status === 422) {
       const retry = await fetch(issueUrl, {
         method: "POST",
@@ -590,13 +598,7 @@ async function proposeToken(payload: ProposePayload): Promise<void> {
   }
 }
 
-// ─── NEW: Component Scaffold ──────────────────────────────────────────────────
-// Creates a correctly structured component set in the current page (Sandbox)
-// with auto-layout, naming convention, and token variables pre-bound where
-// the current file has matching tokens available.
-
-// Token preset definitions — maps preset name to the semantic token names
-// used for fill on the surface layer. Extend this map as Thread DS grows.
+// ─── Component Scaffold ───────────────────────────────────────────────────────
 const TOKEN_PRESETS: Record<string, Record<string, string>> = {
   "decision-surface": {
     success:     "surface/decision/success",
@@ -618,8 +620,6 @@ const TOKEN_PRESETS: Record<string, Record<string, string>> = {
   }
 };
 
-// Parses a variant property string like "Type: success, warning, error" into
-// { propName: "Type", values: ["success", "warning", "error"] }
 function parseVariantProp(raw: string): { propName: string; values: string[] } | null {
   const colonIdx = raw.indexOf(":");
   if (colonIdx === -1) return null;
@@ -639,10 +639,7 @@ async function scaffoldComponent(
     throw new Error("Component name is required.");
   }
 
-  // Normalise name to lowercase kebab
   const normName = componentName.trim().toLowerCase().replace(/\s+/g, "-");
-
-  // Parse variant properties
   const parsedProps = variantPropsRaw
     .map(parseVariantProp)
     .filter((p): p is { propName: string; values: string[] } => p !== null);
@@ -651,19 +648,14 @@ async function scaffoldComponent(
     throw new Error("At least one variant property is required (e.g. 'Type: success, warning').");
   }
 
-  // Get token map for this preset
   const presetTokens = TOKEN_PRESETS[tokenPreset] ?? {};
-
-  // Load local variables for token binding
   const allVars = await figma.variables.getLocalVariablesAsync();
   const varByName: Record<string, Variable> = {};
   for (const v of allVars) varByName[v.name] = v;
 
-  // Determine layout from baseType
   const isHorizontal = baseType.includes("horizontal");
   const layoutMode: "HORIZONTAL" | "VERTICAL" = isHorizontal ? "HORIZONTAL" : "VERTICAL";
 
-  // Build all variant combinations (cartesian product of all prop values)
   function cartesian(arrays: string[][]): string[][] {
     return arrays.reduce<string[][]>(
       (acc, curr) => ([] as string[][]).concat(...acc.map(a => curr.map(b => [...a, b]))),
@@ -672,17 +664,11 @@ async function scaffoldComponent(
   }
   const propValueArrays = parsedProps.map(p => p.values);
   const combinations = cartesian(propValueArrays);
-
-  // Create component set
   const components: ComponentNode[] = [];
 
   for (const combo of combinations) {
     const comp = figma.createComponent();
-
-    // Name: "PropName=value, PropName2=value2"
     comp.name = combo.map((val, i) => parsedProps[i].propName + "=" + val).join(", ");
-
-    // Layout
     comp.layoutMode = layoutMode;
     comp.counterAxisSizingMode = "AUTO";
     comp.primaryAxisSizingMode = "AUTO";
@@ -693,15 +679,12 @@ async function scaffoldComponent(
     comp.itemSpacing = 8;
     comp.cornerRadius = 8;
 
-    // Add a placeholder text layer
     const label = figma.createText();
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     label.characters = normName;
     label.fontSize = 14;
     comp.appendChild(label);
 
-    // Bind surface fill to token if available
-    // Look for a token matching this variant's first prop value in the preset
     const firstVal = combo[0].toLowerCase();
     const tokenName = presetTokens[firstVal];
     if (tokenName && varByName[tokenName]) {
@@ -715,7 +698,6 @@ async function scaffoldComponent(
           token
         );
       } catch {
-        // setBoundVariableForPaint mutates in-place; re-assign fills after binding
         const boundFill = figma.variables.setBoundVariableForPaint(
           { type: "SOLID", color: { r: 0.95, g: 0.95, b: 0.95 } } as SolidPaint,
           "color",
@@ -724,23 +706,17 @@ async function scaffoldComponent(
         comp.fills = [boundFill];
       }
     } else {
-      // Fallback: light grey surface, no binding
       comp.fills = [{ type: "SOLID", color: { r: 0.95, g: 0.95, b: 0.95 } }];
     }
 
     components.push(comp);
   }
 
-  // Combine into a component set
   const set = figma.combineAsVariants(components, figma.currentPage);
   set.name = normName;
   set.description = "Proposed component — Thread DS Sandbox. Created by Thread DS Plugin.\nToken preset: " + tokenPreset;
-
-  // Position near viewport centre
   set.x = figma.viewport.center.x - (set.width / 2);
   set.y = figma.viewport.center.y - (set.height / 2);
-
-  // Select it so the designer sees it immediately
   figma.currentPage.selection = [set];
   figma.viewport.scrollAndZoomIntoView([set]);
 
@@ -750,19 +726,16 @@ async function scaffoldComponent(
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   const saved = await figma.clientStorage.getAsync("settings") as Settings | undefined;
-  // Wider + taller to accommodate the tab UI
   figma.showUI(__html__, { width: 360, height: 480 });
   figma.ui.postMessage({ type: "SETTINGS_LOADED", settings: saved ?? null });
 
   figma.ui.onmessage = async (msg) => {
 
-    // ── Existing: save settings
     if (msg.type === "SAVE_SETTINGS") {
       await figma.clientStorage.setAsync("settings", msg.settings);
       figma.ui.postMessage({ type: "SETTINGS_SAVED" });
     }
 
-    // ── Existing: sync to GitHub
     if (msg.type === "SYNC") {
       const settings = await figma.clientStorage.getAsync("settings") as Settings | undefined;
       if (!settings || !settings.pat) {
@@ -790,7 +763,6 @@ async function main() {
       }
     }
 
-    // ── NEW: run token audit on current selection
     if (msg.type === "AUDIT_SELECTION") {
       try {
         const issues = await runAudit();
@@ -800,7 +772,6 @@ async function main() {
       }
     }
 
-    // ── NEW: propose a token via Tines webhook
     if (msg.type === "PROPOSE_TOKEN") {
       try {
         await proposeToken(msg.payload as ProposePayload);
@@ -810,7 +781,6 @@ async function main() {
       }
     }
 
-    // ── NEW: scaffold a component in the current page
     if (msg.type === "SCAFFOLD_COMPONENT") {
       try {
         const result = await scaffoldComponent(
