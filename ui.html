@@ -370,6 +370,8 @@
     .audit-pill-label { font-size: 10px; font-weight: 600; color: var(--grey-600); }
 
     .audit-list { display: flex; flex-direction: column; gap: 6px; }
+    .plat-label { display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--grey-200);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;transition:border-color .15s,background .15s; }
+    .plat-label.plat-active { border-color:var(--purple);background:#EEECfc; }
     .audit-item {
       border-radius: 8px;
       padding: 10px 12px;
@@ -821,11 +823,11 @@
           <label class="field-label">Which platforms need it?</label>
           <div style="font-size:11px;color:var(--grey-400);margin-bottom:6px;">Select all that apply — you can choose more than one.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;" id="rc-plat-grid">
-            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> iOS</label>
-            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> Android</label>
-            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> mWeb</label>
-            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> dWeb</label>
-            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--grey-200);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;"><input type="checkbox" style="accent-color:var(--purple);width:13px;height:13px;"> Tablet</label>
+            <label class="plat-label plat-active"><input type="checkbox" checked class="plat-cb" style="accent-color:var(--purple);width:13px;height:13px;"> iOS</label>
+            <label class="plat-label plat-active"><input type="checkbox" checked class="plat-cb" style="accent-color:var(--purple);width:13px;height:13px;"> Android</label>
+            <label class="plat-label plat-active"><input type="checkbox" checked class="plat-cb" style="accent-color:var(--purple);width:13px;height:13px;"> mWeb</label>
+            <label class="plat-label plat-active"><input type="checkbox" checked class="plat-cb" style="accent-color:var(--purple);width:13px;height:13px;"> dWeb</label>
+            <label class="plat-label"><input type="checkbox" class="plat-cb" style="accent-color:var(--purple);width:13px;height:13px;"> Tablet</label>
           </div>
         </div>
 
@@ -1527,6 +1529,14 @@
         const nodeId = focusBtn.getAttribute('data-focus-node');
         parent.postMessage({ pluginMessage: { type: 'FOCUS_NODE', nodeId: nodeId } }, '*');
       }
+    });
+
+    document.getElementById('rc-plat-grid').addEventListener('change', function(e) {
+      const cb = e.target;
+      if (!cb.classList.contains('plat-cb')) return;
+      const label = cb.closest('label');
+      if (cb.checked) label.classList.add('plat-active');
+      else label.classList.remove('plat-active');
     });
 
     // ── Message handler ─────────────────────────────────────────────────────────
