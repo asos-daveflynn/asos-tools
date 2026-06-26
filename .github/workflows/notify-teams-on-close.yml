@@ -1,0 +1,25 @@
+name: Notify Teams when DS issue closed
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.issue.labels.*.name, 'token-proposal') ||
+      contains(github.event.issue.labels.*.name, 'component-proposal')
+
+    steps:
+      - name: Post to Teams via Power Automate
+        run: |
+          curl -X POST "${{ secrets.TEAMS_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"type\": \"complete\",
+              \"title\": \"${{ github.event.issue.title }}\",
+              \"issue_number\": \"${{ github.event.issue.number }}\",
+              \"url\": \"${{ github.event.issue.html_url }}\",
+              \"closed_by\": \"${{ github.event.sender.login }}\"
+            }"
