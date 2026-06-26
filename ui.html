@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    /* Inter loaded from system/Figma environment */
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -545,7 +545,7 @@
         </svg>
       </div>
 
-      <div class="action-card" onclick="openScreen('request', 'Request a token')">
+      <div class="action-card" onclick="openScreen('request', 'Request something new'); reqStep('0');">
         <div class="action-icon request">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="10" cy="10" r="7"/>
@@ -553,8 +553,8 @@
           </svg>
         </div>
         <div class="action-text">
-          <div class="action-title">Request a token</div>
-          <div class="action-desc">Ask the DS team to add a new colour, spacing or style</div>
+          <div class="action-title">Request something new</div>
+          <div class="action-desc">Ask for a new token or component to be added to Thread DS</div>
         </div>
         <svg class="action-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 4l4 4-4 4"/>
@@ -628,47 +628,252 @@
       </div>
     </div>
 
-    <!-- ── REQUEST A TOKEN ── -->
+    <!-- ── REQUEST SOMETHING NEW ── -->
     <div id="screen-request" class="screen">
-      <div class="screen-body">
 
-        <div class="field">
-          <label class="field-label">What kind of token is it?</label>
-          <select id="prop-collection">
-            <option value="3. Colour">Colour</option>
-            <option value="4. Typography">Typography</option>
-            <option value="5. Spacing and Padding">Spacing or padding</option>
-            <option value="6. Shape">Shape or radius</option>
-            <option value="7. Elevation and Shadows">Shadow or elevation</option>
-          </select>
+      <!-- Step 0: Token or Component? -->
+      <div id="req-step-0" class="screen-body">
+        <p style="font-size:12px;color:var(--grey-600);margin-bottom:14px;line-height:1.6;">Not sure what to call it? Don't worry — describe what you need and we'll figure out the details together.</p>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div class="action-card" onclick="reqStartToken()" style="padding:12px 14px;">
+            <div class="action-icon publish" style="width:36px;height:36px;">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 7v6M7 10h6"/></svg>
+            </div>
+            <div class="action-text">
+              <div class="action-title" style="font-size:13px;">A new token</div>
+              <div class="action-desc">Colour, shape, spacing, typography, elevation…</div>
+            </div>
+            <svg class="action-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 4l4 4-4 4"/></svg>
+          </div>
+          <div class="action-card" onclick="reqStartComponent()" style="padding:12px 14px;">
+            <div class="action-icon start" style="width:36px;height:36px;">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg>
+            </div>
+            <div class="action-text">
+              <div class="action-title" style="font-size:13px;">A new component</div>
+              <div class="action-desc">A UI pattern not yet in Thread DS</div>
+            </div>
+            <svg class="action-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 4l4 4-4 4"/></svg>
+          </div>
         </div>
-
-        <div class="field">
-          <label class="field-label">Token name</label>
-          <input type="text" id="prop-name" placeholder="e.g. surface/decision/warning-subtle" autocomplete="off" autocorrect="off" spellcheck="false" />
-          <div class="name-status" id="prop-name-status"></div>
-          <div class="field-hint">Lowercase, separated by slashes. Follow the pattern: category/context/role</div>
-        </div>
-
-        <div class="field">
-          <label class="field-label">What global value should it use? <span style="font-weight:400;color:var(--grey-400)">(optional)</span></label>
-          <input type="text" id="prop-alias" placeholder="e.g. amber/100" autocomplete="off" autocorrect="off" spellcheck="false" />
-          <div class="field-hint">The raw global token this new token points to</div>
-        </div>
-
-        <div class="field">
-          <label class="field-label">Why do you need it?</label>
-          <textarea id="prop-rationale" placeholder="Describe the use case and why an existing token doesn't work…"></textarea>
-        </div>
-
-        <div class="field">
-          <label class="field-label">Your name</label>
-          <input type="text" id="prop-author" placeholder="e.g. David Flynn" />
-        </div>
-
-        <button class="btn btn-primary" id="btn-propose" disabled>Send request to DS team</button>
-        <div class="status-msg" id="propose-status"></div>
       </div>
+
+      <!-- TOKEN FLOW -->
+
+      <!-- Token Step 1: Intent -->
+      <div id="req-step-t1" style="display:none;" class="screen-body">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:14px;">
+          <div style="width:20px;height:20px;border-radius:50%;background:var(--purple);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</div>
+          <div style="font-size:11px;font-weight:600;color:var(--grey-600);">Describe &nbsp;·&nbsp; <span style="color:var(--purple);">Step 1 of 2</span></div>
+        </div>
+        <div class="field">
+          <label class="field-label">What do you need this token for?</label>
+          <div style="font-size:11px;color:var(--grey-400);margin-bottom:6px;line-height:1.5;">Describe it in plain English — don't worry about naming.</div>
+          <textarea id="req-intent" rows="3" placeholder="e.g. I need a corner radius of 20px for a new card style on the home page" style="min-height:72px;"></textarea>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;" id="req-chips"></div>
+        </div>
+        <button class="btn btn-primary" onclick="reqAnalyse()">Analyse →</button>
+      </div>
+
+      <!-- Token Step 2: Confirm + name -->
+      <div id="req-step-t2" style="display:none;" class="screen-body">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+          <div style="width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✓</div>
+          <div style="font-size:11px;font-weight:600;color:var(--grey-600);">Confirm &amp; submit &nbsp;·&nbsp; <span style="color:var(--purple);">Step 2 of 2</span></div>
+        </div>
+
+        <!-- Interpretation card -->
+        <div id="req-interp" style="background:#EEECfc;border:1.5px solid #C4BEEF;border-radius:10px;padding:11px 13px;margin-bottom:12px;">
+          <div style="font-weight:700;font-size:11px;color:var(--purple);display:flex;align-items:center;gap:5px;margin-bottom:8px;">✦ Thread DS interpreted this as:</div>
+          <div style="display:flex;gap:8px;margin-bottom:4px;align-items:baseline;">
+            <span style="font-size:10px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.04em;width:56px;flex-shrink:0;">Category</span>
+            <span id="ri-category" style="font-size:12px;font-weight:600;"></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:4px;align-items:baseline;">
+            <span style="font-size:10px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.04em;width:56px;flex-shrink:0;">Name</span>
+            <code id="ri-name" style="font-size:11px;background:rgba(91,71,224,.1);padding:1px 5px;border-radius:4px;color:var(--purple);font-family:'SF Mono',monospace;"></code>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:0;align-items:baseline;">
+            <span style="font-size:10px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.04em;width:56px;flex-shrink:0;">Value</span>
+            <span id="ri-value" style="font-size:12px;font-weight:500;"></span>
+          </div>
+          <div id="ri-warn" style="display:none;font-size:11px;color:var(--amber);margin-top:7px;padding-top:7px;border-top:1px solid #C4BEEF;display:flex;gap:5px;align-items:flex-start;">
+            ⚠ <span id="ri-warn-text"></span>
+          </div>
+        </div>
+
+        <!-- Scale picker (shape only) -->
+        <div id="req-scale-wrap" style="display:none;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--grey-400);margin-bottom:8px;">Pick a scale step</div>
+          <div style="font-size:11px;color:var(--grey-400);margin-bottom:8px;line-height:1.5;" id="req-scale-hint"></div>
+          <div id="req-scale-opts" style="display:flex;flex-direction:column;gap:5px;"></div>
+        </div>
+
+        <!-- Name field -->
+        <div class="field" style="margin-top:10px;">
+          <label class="field-label">Token name <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:100px;background:#EEECfc;color:var(--purple);">Auto-generated</span></label>
+          <div id="req-name-locked" style="background:var(--grey-50);border:1.5px solid var(--grey-200);border-radius:8px;padding:8px 10px;font-size:11px;font-family:'SF Mono',monospace;display:flex;align-items:center;justify-content:space-between;">
+            <span id="req-name-display"></span>
+            <span style="font-size:11px;color:var(--purple);cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;" onclick="reqToggleNameEdit()">Edit</span>
+          </div>
+          <input type="text" id="req-name-input" style="display:none;margin-top:6px;font-family:'SF Mono',monospace;font-size:12px;" autocomplete="off" spellcheck="false" />
+          <div class="field-hint">Thread DS naming: <code style="font-family:monospace;font-size:10px;background:var(--grey-100);padding:1px 4px;border-radius:3px;">category/group/role</code></div>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="reqStep('t1')" style="flex:0 0 auto;width:auto;padding:10px 14px;">← Back</button>
+          <button class="btn btn-primary" id="btn-submit-token" onclick="reqSubmitFromStep2()" style="flex:1;">Submit request ✓</button>
+        </div>
+        <div class="status-msg" id="propose-status"></div>
+        <button class="btn btn-secondary" id="btn-another-token" onclick="reqReset()" style="margin-top:8px;display:none;">Make another request</button>
+      </div>
+
+      <!-- Token Step 3: Preview + submit -->
+      <div id="req-step-t3" style="display:none;" class="screen-body">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+          <div style="width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✓</div>
+          <div style="font-size:11px;font-weight:600;color:var(--grey-600);">Preview your request &nbsp;·&nbsp; <span style="color:var(--purple);">Step 2 of 2</span></div>
+        </div>
+
+        <div style="font-size:11px;color:var(--grey-400);margin-bottom:10px;line-height:1.5;">Here's exactly what will be added to Thread DS. Review before submitting.</div>
+
+        <!-- Token preview table -->
+        <div style="border:1.5px solid var(--grey-200);border-radius:10px;overflow:hidden;margin-bottom:12px;">
+          <div style="padding:6px 10px;background:var(--grey-50);border-bottom:1px solid var(--grey-100);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--grey-400);">New token · <span id="prev-cat-label">Shape</span></span>
+            <span style="font-size:9px;font-weight:600;color:var(--amber);background:var(--amber-bg);padding:2px 6px;border-radius:100px;">Pending review</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr>
+              <th style="text-align:left;padding:5px 9px;font-size:9px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--grey-100);">Token</th>
+              <th style="text-align:left;padding:5px 9px;font-size:9px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--grey-100);">Preview</th>
+              <th style="text-align:left;padding:5px 9px;font-size:9px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--grey-100);">Value</th>
+            </tr>
+            <tr>
+              <td style="padding:7px 9px;font-size:10px;"><code id="prev-name" style="font-family:'SF Mono',monospace;font-size:10px;background:var(--grey-100);padding:1px 4px;border-radius:3px;color:var(--purple);"></code></td>
+              <td style="padding:7px 9px;"><div id="prev-swatch" style="width:28px;height:18px;background:var(--black);border-radius:3px;"></div></td>
+              <td style="padding:7px 9px;font-size:11px;" id="prev-value"></td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Shape scale context -->
+        <div id="prev-scale-wrap" style="display:none;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--grey-400);margin-bottom:6px;">Where it sits in the scale</div>
+          <div style="border:1.5px solid var(--grey-200);border-radius:10px;overflow:hidden;margin-bottom:12px;">
+            <table style="width:100%;border-collapse:collapse;" id="prev-scale-table"></table>
+          </div>
+        </div>
+
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--grey-400);margin-bottom:6px;">Next steps</div>
+        <div style="font-size:11px;color:var(--grey-600);line-height:1.6;margin-bottom:14px;padding:10px 12px;background:var(--grey-50);border-radius:8px;border:1px solid var(--grey-100);">&#8505;&#65039; The DS team will review this request, confirm the final token name, and add it to Thread DS.</div>
+
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-secondary" onclick="reqStep('t2')" style="flex:0 0 auto;width:auto;padding:10px 14px;">← Back</button>
+          <button class="btn btn-primary" id="btn-submit-token" onclick="reqSubmit()" style="flex:1;">Submit request ✓</button>
+        </div>
+        <div class="status-msg" id="propose-status"></div>
+        <button class="btn btn-secondary" id="btn-another-token" onclick="reqReset()" style="margin-top:8px;display:none;">Make another request</button>
+      </div>
+
+      <!-- COMPONENT FLOW -->
+
+      <!-- Component Step 1: Intent -->
+      <div id="req-step-c1" style="display:none;" class="screen-body">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:14px;">
+          <div style="width:20px;height:20px;border-radius:50%;background:var(--purple);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</div>
+          <div style="font-size:11px;font-weight:600;color:var(--grey-600);">Describe &nbsp;·&nbsp; <span style="color:var(--purple);">Step 1 of 2</span></div>
+        </div>
+        <div class="field">
+          <label class="field-label">What does this component need to do?</label>
+          <div style="font-size:11px;color:var(--grey-400);margin-bottom:6px;line-height:1.5;">Describe its job, not its appearance.</div>
+          <textarea id="req-comp-intent" rows="3" placeholder="e.g. A card that shows a product image, name, price and a save button — used on search results and category pages" style="min-height:72px;"></textarea>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">
+            <span onclick="document.getElementById('req-comp-intent').value=this.textContent" style="font-size:11px;padding:3px 8px;border-radius:100px;border:1px solid var(--grey-200);color:var(--grey-600);cursor:pointer;background:var(--grey-50);">A rating and review summary</span>
+            <span onclick="document.getElementById('req-comp-intent').value=this.textContent" style="font-size:11px;padding:3px 8px;border-radius:100px;border:1px solid var(--grey-200);color:var(--grey-600);cursor:pointer;background:var(--grey-50);">An order tracking status bar</span>
+            <span onclick="document.getElementById('req-comp-intent').value=this.textContent" style="font-size:11px;padding:3px 8px;border-radius:100px;border:1px solid var(--grey-200);color:var(--grey-600);cursor:pointer;background:var(--grey-50);">A size guide tooltip</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="reqAnalyseComponent()">Continue →</button>
+      </div>
+
+      <!-- Component Step 2: Details -->
+      <div id="req-step-c2" style="display:none;" class="screen-body">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+          <div style="width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✓</div>
+          <div style="font-size:11px;font-weight:600;color:var(--grey-600);">Confirm &amp; submit &nbsp;·&nbsp; <span style="color:var(--purple);">Step 2 of 2</span></div>
+        </div>
+
+        <div style="background:#EEECfc;border:1.5px solid #C4BEEF;border-radius:10px;padding:11px 13px;margin-bottom:12px;">
+          <div style="font-weight:700;font-size:11px;color:var(--purple);margin-bottom:8px;">✦ Suggested component</div>
+          <div style="display:flex;gap:8px;margin-bottom:4px;align-items:baseline;">
+            <span style="font-size:10px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.04em;width:56px;flex-shrink:0;">Name</span>
+            <code id="rc-name" style="font-size:11px;background:rgba(91,71,224,.1);padding:1px 5px;border-radius:4px;color:var(--purple);font-family:'SF Mono',monospace;"></code>
+          </div>
+          <div style="display:flex;gap:8px;align-items:baseline;">
+            <span style="font-size:10px;font-weight:700;color:var(--grey-400);text-transform:uppercase;letter-spacing:.04em;width:56px;flex-shrink:0;">Type</span>
+            <span id="rc-type" style="font-size:12px;font-weight:500;"></span>
+          </div>
+          <div style="font-size:11px;color:var(--amber);margin-top:7px;padding-top:7px;border-top:1px solid #C4BEEF;">💡 Don't worry about the name — the DS team will confirm it. Check first that something similar doesn't already exist.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Which platforms need it?</label>
+          <div style="font-size:11px;color:var(--grey-400);margin-bottom:6px;">Select all that apply — you can choose more than one.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;" id="rc-plat-grid">
+            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> iOS</label>
+            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> Android</label>
+            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> mWeb</label>
+            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--purple);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;background:#EEECfc;"><input type="checkbox" checked style="accent-color:var(--purple);width:13px;height:13px;"> dWeb</label>
+            <label style="display:flex;align-items:center;gap:7px;padding:7px 9px;border:1.5px solid var(--grey-200);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;"><input type="checkbox" style="accent-color:var(--purple);width:13px;height:13px;"> Tablet</label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Why doesn't an existing component work?</label>
+          <textarea id="rc-why" rows="2" placeholder="e.g. The existing card doesn't support inline save or price formatting" style="min-height:56px;"></textarea>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="reqStep('c1')" style="flex:0 0 auto;width:auto;padding:10px 14px;">← Back</button>
+          <button class="btn btn-primary" id="btn-submit-comp" onclick="reqCompSubmitFromStep2()" style="flex:1;">Submit request ✓</button>
+        </div>
+        <div class="status-msg" id="propose-status-comp"></div>
+        <button class="btn btn-secondary" id="btn-another-comp" onclick="reqReset()" style="margin-top:8px;display:none;">Make another request</button>
+      </div>
+
+      <!-- Component Step 3: Preview + submit -->
+      <div id="req-step-c3" style="display:none;" class="screen-body">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+          <div style="width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✓</div>
+          <div style="font-size:11px;font-weight:600;color:var(--grey-600);">Preview your brief &nbsp;·&nbsp; <span style="color:var(--purple);">Step 2 of 2</span></div>
+        </div>
+
+        <div style="border:1.5px solid var(--grey-200);border-radius:10px;overflow:hidden;margin-bottom:12px;">
+          <div style="padding:6px 10px;background:var(--grey-50);border-bottom:1px solid var(--grey-100);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--grey-400);">New component brief</span>
+            <span style="font-size:9px;font-weight:600;color:var(--amber);background:var(--amber-bg);padding:2px 6px;border-radius:100px;">Pending review</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr><td style="padding:7px 9px;font-size:10px;font-weight:600;color:var(--grey-600);width:80px;border-bottom:1px solid var(--grey-100);">Name</td><td style="padding:7px 9px;font-size:11px;border-bottom:1px solid var(--grey-100);"><code id="rcp-name" style="font-family:'SF Mono',monospace;font-size:10px;background:var(--grey-100);padding:1px 4px;border-radius:3px;color:var(--purple);"></code></td></tr>
+            <tr><td style="padding:7px 9px;font-size:10px;font-weight:600;color:var(--grey-600);border-bottom:1px solid var(--grey-100);">Platforms</td><td style="padding:7px 9px;font-size:11px;border-bottom:1px solid var(--grey-100);" id="rcp-platforms"></td></tr>
+            <tr><td style="padding:7px 9px;font-size:10px;font-weight:600;color:var(--grey-600);">Status</td><td style="padding:7px 9px;font-size:11px;"><span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:100px;background:var(--amber-bg);color:var(--amber);">New request</span></td></tr>
+          </table>
+        </div>
+
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--grey-400);margin-bottom:5px;">What it needs to do</div>
+        <div style="font-size:12px;color:var(--grey-600);line-height:1.6;margin-bottom:12px;" id="rcp-intent"></div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--grey-400);margin-bottom:5px;">Why existing components don't work</div>
+        <div style="font-size:12px;color:var(--grey-600);line-height:1.6;margin-bottom:12px;" id="rcp-why"></div>
+
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-secondary" onclick="reqStep('c2')" style="flex:0 0 auto;width:auto;padding:10px 14px;">← Back</button>
+          <button class="btn btn-primary" id="btn-submit-comp" onclick="reqCompSubmit()" style="flex:1;">Submit request ✓</button>
+        </div>
+        <div class="status-msg" id="propose-status-comp"></div>
+        <button class="btn btn-secondary" id="btn-another-comp" onclick="reqReset()" style="margin-top:8px;display:none;">Make another request</button>
+      </div>
+
     </div>
 
     <!-- ── START A COMPONENT ── -->
@@ -834,55 +1039,317 @@
       parent.postMessage({ pluginMessage: { type: 'SAVE_SETTINGS', settings } }, '*');
     };
 
-    // ── Request a token ─────────────────────────────────────────────────────────
-    const propName = document.getElementById('prop-name');
-    const propNameStatus = document.getElementById('prop-name-status');
-    const btnPropose = document.getElementById('btn-propose');
-    const TOKEN_NAME_RE = /^[a-z][a-z0-9]*(?:\/[a-z][a-z0-9-]*){1,}$/;
+    // ── Request something new — intelligent flow ───────────────────────────────
 
-    function validatePropName() {
-      const val = propName.value.trim();
-      const rationale = document.getElementById('prop-rationale').value.trim();
-      const author = document.getElementById('prop-author').value.trim();
-      if (!val) {
-        propNameStatus.textContent = '';
-        propNameStatus.className = 'name-status';
-        btnPropose.disabled = true;
-        return;
-      }
-      if (!TOKEN_NAME_RE.test(val)) {
-        propNameStatus.textContent = 'Use the format: category/context/role — all lowercase';
-        propNameStatus.className = 'name-status err';
-        btnPropose.disabled = true;
+    const REQ = {}; // request state
+
+    const SHAPE_SCALE = [
+      {px:0,   label:'none',    token:'shape/corner radius/none'},
+      {px:4,   label:'x small', token:'shape/corner radius/x small'},
+      {px:8,   label:'small',   token:'shape/corner radius/small'},
+      {px:16,  label:'medium',  token:'shape/corner radius/medium'},
+      {px:20,  label:'large',   token:'shape/corner radius/large'},
+      {px:24,  label:'x large', token:'shape/corner radius/x large'},
+      {px:100, label:'full',    token:'shape/corner radius/full'},
+    ];
+
+    // Add example chips
+    const chips = [
+      '20px corner radius for a card',
+      'New colour for sale prices',
+      'More spacing between sections',
+      'Shadow for a floating modal',
+    ];
+    const chipsEl = document.getElementById('req-chips');
+    chips.forEach(c => {
+      const el = document.createElement('span');
+      el.textContent = c;
+      el.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:100px;border:1px solid var(--grey-200);color:var(--grey-600);cursor:pointer;background:var(--grey-50);';
+      el.onclick = () => document.getElementById('req-intent').value = c;
+      chipsEl.appendChild(el);
+    });
+
+    function reqStep(id) {
+      ['step-0','step-t1','step-t2','step-t3','step-c1','step-c2','step-c3'].forEach(s => {
+        document.getElementById('req-' + s).style.display = 'none';
+      });
+      document.getElementById('req-step-' + id).style.display = 'block';
+    }
+
+    function reqStartToken()     { REQ.type = 'token';     reqStep('t1'); }
+    function reqStartComponent() { REQ.type = 'component'; reqStep('c1'); }
+
+    function reqAnalyse() {
+      const text = document.getElementById('req-intent').value.trim();
+      if (!text) { alert('Describe what you need first.'); return; }
+      REQ.intent = text;
+
+      const pxM = text.match(/(\d+)\s*px/i);
+      const px  = pxM ? parseInt(pxM[1]) : null;
+      let cat, name, value, warn;
+
+      if (/radius|rounded|corner/i.test(text)) {
+        cat = 'Shape';
+        const existing = SHAPE_SCALE.find(s => s.px === px);
+        if (!px) {
+          name = 'shape/corner radius/[name]'; value = '—';
+          warn = "We couldn't detect a pixel value — pick a step from the scale below.";
+        } else if (existing) {
+          name = existing.token; value = px + 'px';
+          warn = px + 'px already exists as "' + existing.label + '" — you may not need a new token.';
+        } else {
+          // Don't guess a name — leave it for the DS team to confirm
+          name = 'shape/corner radius/[ds team to confirm]'; value = px + 'px';
+          const below = [...SHAPE_SCALE].filter(s => s.px < px).pop();
+          const above = SHAPE_SCALE.find(s => s.px > px);
+          warn = px + 'px sits between ' + (below ? below.label + ' (' + below.px + 'px)' : '—') + ' and ' + (above ? above.label + ' (' + above.px + 'px)' : '—') + '. The DS team will confirm the final name.';
+        }
+        REQ.isShape = true;
+      } else if (/sale|text colou?r|text color|price/i.test(text)) {
+        cat = 'Colour';
+        const isSale = /sale/i.test(text);
+        name = isSale ? 'text/decision/sale' : 'text/decision/[role]';
+        value = isSale ? 'alias → error/600 (light) / error/400 (dark)' : '—';
+        warn = isSale ? 'text/decision/sale already exists — you may not need a new token.' : '';
+        REQ.isShape = false;
+      } else if (/spacing|gap|margin|padding/i.test(text)) {
+        cat = 'Spacing'; name = px ? 'spacing/[context]/' + px : 'spacing/[context]/[role]';
+        value = px ? px + 'px' : '—';
+        warn = 'Check the spacing scale first — the value may already exist.';
+        REQ.isShape = false;
+      } else if (/shadow|elevation|floating/i.test(text)) {
+        cat = 'Elevation'; name = 'elevation/[level]';
+        value = 'COLOR alias → alpha/black/[level]';
+        warn = 'Check if heavy or medium elevation fits first.';
+        REQ.isShape = false;
       } else {
-        propNameStatus.textContent = '✓ Name looks good';
-        propNameStatus.className = 'name-status ok';
-        btnPropose.disabled = !(rationale && author);
+        cat = 'Unknown'; name = '[category]/[group]/[role]'; value = '—';
+        warn = "Couldn't identify the type — edit the name to match Thread DS naming.";
+        REQ.isShape = false;
+      }
+
+      REQ.category = cat; REQ.name = name; REQ.value = value; REQ.px = px;
+
+      document.getElementById('ri-category').textContent = cat;
+      document.getElementById('ri-name').textContent = name;
+      document.getElementById('ri-value').textContent = value;
+      document.getElementById('req-name-display').textContent = name;
+      document.getElementById('req-name-input').value = name;
+
+      const warnEl = document.getElementById('ri-warn');
+      if (warn) { warnEl.style.display = 'flex'; document.getElementById('ri-warn-text').textContent = warn; }
+      else warnEl.style.display = 'none';
+
+      const scaleWrap = document.getElementById('req-scale-wrap');
+      if (cat === 'Shape') {
+        scaleWrap.style.display = 'block';
+        document.getElementById('req-scale-hint').textContent = px
+          ? px + 'px isn\'t on the scale. Pick an existing step or confirm ' + px + 'px as new.'
+          : 'Pick an existing step.';
+        buildScalePicker(px);
+      } else {
+        scaleWrap.style.display = 'none';
+      }
+
+      reqStep('t2');
+    }
+
+    function buildScalePicker(targetPx) {
+      const c = document.getElementById('req-scale-opts');
+      c.innerHTML = '';
+      const opts = [...SHAPE_SCALE];
+      if (targetPx && !opts.find(s => s.px === targetPx)) {
+        opts.push({px: targetPx, label: targetPx + 'px (new step)', token: REQ.name, isNew: true});
+        opts.sort((a,b) => a.px - b.px);
+      }
+      opts.forEach(opt => {
+        const el = document.createElement('div');
+        const sel = opt.isNew;
+        el.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1.5px solid ' + (sel ? 'var(--purple)' : 'var(--grey-200)') + ';border-radius:7px;cursor:pointer;background:' + (sel ? 'var(--purple-light)' : '#fff') + ';';
+        el.innerHTML = '<div style="width:30px;height:16px;background:var(--black);border-radius:' + Math.min(opt.px, 14) + 'px;flex-shrink:0;"></div>' +
+          '<span style="font-size:12px;font-weight:600;flex:1;">' + opt.label + '</span>' +
+          '<span style="font-size:10px;color:var(--grey-400);font-family:monospace;">' + opt.px + 'px</span>' +
+          (opt.isNew ? '<span style="font-size:10px;color:var(--purple);font-weight:600;">⊕ New</span>' : '');
+        el.onclick = () => {
+          c.querySelectorAll('div').forEach(d => { d.style.borderColor = 'var(--grey-200)'; d.style.background = '#fff'; });
+          el.style.borderColor = 'var(--purple)'; el.style.background = 'var(--purple-light)';
+          REQ.value = opt.px + 'px'; REQ.px = opt.px;
+          REQ.name = opt.token || REQ.name;
+          document.getElementById('req-name-display').textContent = REQ.name;
+          document.getElementById('req-name-input').value = REQ.name;
+          document.getElementById('ri-value').textContent = REQ.value;
+        };
+        c.appendChild(el);
+      });
+    }
+
+    function reqToggleNameEdit() {
+      const locked = document.getElementById('req-name-locked');
+      const input  = document.getElementById('req-name-input');
+      if (input.style.display !== 'none') {
+        REQ.name = input.value.trim() || REQ.name;
+        document.getElementById('req-name-display').textContent = REQ.name;
+        locked.style.display = 'flex'; input.style.display = 'none';
+      } else {
+        input.value = REQ.name; locked.style.display = 'none'; input.style.display = 'block'; input.focus();
       }
     }
 
-    propName.addEventListener('input', validatePropName);
-    document.getElementById('prop-rationale').addEventListener('input', validatePropName);
-    document.getElementById('prop-author').addEventListener('input', validatePropName);
+    function reqPreview() {
+      if (document.getElementById('req-name-input').style.display !== 'none') {
+        REQ.name = document.getElementById('req-name-input').value.trim() || REQ.name;
+      } else {
+        REQ.name = document.getElementById('req-name-display').textContent;
+      }
+      REQ.why = '';
 
-    btnPropose.onclick = () => {
-      btnPropose.disabled = true;
+      document.getElementById('prev-cat-label').textContent = REQ.category;
+      document.getElementById('prev-name').textContent = REQ.name;
+      document.getElementById('prev-value').textContent = REQ.value;
+      document.getElementById('prev-swatch').style.borderRadius = Math.min(REQ.px || 0, 14) + 'px';
+      // prev-why-text element removed
+
+      if (REQ.isShape) {
+        document.getElementById('prev-scale-wrap').style.display = 'block';
+        buildPreviewScaleTable();
+      } else {
+        document.getElementById('prev-scale-wrap').style.display = 'none';
+      }
+
+      // Build copy block
+      const copy = '## 🎨 Token request\n\n' +
+        '**Category:** ' + REQ.category + '\n' +
+        '**Token name:** ' + REQ.name + '\n' +
+        '**Value:** ' + REQ.value + '\n' +
+        '**Status:** New — not currently in Thread DS\n\n' +
+        '**Why it\'s needed:**\n' + (REQ.why || 'No reason provided.') + '\n\n' +
+        '**Intent:**\n' + REQ.intent + '\n\n' +
+        '**Requested via:** Thread DS Plugin';
+      REQ.copyText = copy;
+      reqStep('t3');
+    }
+
+    function buildPreviewScaleTable() {
+      const rows = [...SHAPE_SCALE];
+      if (REQ.px && !rows.find(r => r.px === REQ.px)) {
+        rows.push({px: REQ.px, label: REQ.name, token: REQ.name, isNew: true});
+        rows.sort((a,b) => a.px - b.px);
+      }
+      document.getElementById('prev-scale-table').innerHTML =
+        '<tr><th style="text-align:left;padding:5px 9px;font-size:9px;font-weight:700;color:var(--grey-400);text-transform:uppercase;border-bottom:1px solid var(--grey-100);">Token</th>' +
+        '<th style="text-align:left;padding:5px 9px;font-size:9px;font-weight:700;color:var(--grey-400);text-transform:uppercase;border-bottom:1px solid var(--grey-100);">Preview</th>' +
+        '<th style="text-align:left;padding:5px 9px;font-size:9px;font-weight:700;color:var(--grey-400);text-transform:uppercase;border-bottom:1px solid var(--grey-100);">Value</th></tr>' +
+        rows.map(r => '<tr style="' + (r.isNew ? 'background:rgba(91,71,224,.05);' : '') + '">' +
+          '<td style="padding:6px 9px;font-size:10px;border-bottom:1px solid var(--grey-100);"><code style="font-family:monospace;font-size:10px;background:var(--grey-100);padding:1px 4px;border-radius:3px;color:var(--purple);">' + (r.token || r.label) + '</code>' + (r.isNew ? ' <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:100px;background:var(--amber-bg);color:var(--amber);">⊕ New</span>' : '') + '</td>' +
+          '<td style="padding:6px 9px;border-bottom:1px solid var(--grey-100);"><div style="width:26px;height:16px;background:var(--black);border-radius:' + Math.min(r.px, 14) + 'px;"></div></td>' +
+          '<td style="padding:6px 9px;font-size:11px;border-bottom:1px solid var(--grey-100);">' + r.px + 'px</td></tr>'
+        ).join('');
+    }
+
+    function reqSubmitFromStep2() {
+      // Sync name from whichever field is visible
+      if (document.getElementById('req-name-input').style.display !== 'none') {
+        REQ.name = document.getElementById('req-name-input').value.trim() || REQ.name;
+      } else {
+        REQ.name = document.getElementById('req-name-display').textContent;
+      }
+      reqSubmit();
+    }
+
+    function reqCompSubmitFromStep2() {
+      REQ.compWhy = document.getElementById('rc-why').value.trim();
+      const plats = Array.from(document.querySelectorAll('#rc-plat-grid input:checked')).map(function(c){ return c.closest('label').textContent.trim(); });
+      REQ.compPlatforms = plats;
+      reqCompSubmit();
+    }
+
+    function reqSubmit() {
+      // Sanitise name to pass code.ts slug validation: lowercase, hyphens, slashes only
+      const rawName = (REQ.name || 'new/token/pending').toLowerCase();
+      const safeName = rawName
+        .replace(/\[.*?\]/g, 'pending')
+        .replace(/\s+/g, '-')
+        .split('').filter(function(c){ return 'abcdefghijklmnopqrstuvwxyz0123456789-/'.indexOf(c) >= 0; }).join('')
+        .replace(/\/+/g, '/')
+        .replace(/^[-/]+|[-/]+$/g, '') || 'new/token/pending';
+      parent.postMessage({pluginMessage:{type:'PROPOSE_TOKEN', payload:{
+        collectionName: REQ.category,
+        proposedName: safeName || 'new/token/pending',
+        proposedValue: REQ.value,
+        aliasTo: REQ.aliasTo || '',
+        rationale: REQ.intent || '',
+        submittedBy: REQ.submittedBy || ''
+      }}}, '*');
       const el = document.getElementById('propose-status');
-      el.textContent = 'Sending to DS team…';
-      el.className = 'status-msg muted';
-      parent.postMessage({
-        pluginMessage: {
-          type: 'PROPOSE_TOKEN',
-          payload: {
-            collectionName: document.getElementById('prop-collection').value,
-            proposedName: propName.value.trim(),
-            aliasTo: document.getElementById('prop-alias').value.trim(),
-            rationale: document.getElementById('prop-rationale').value.trim(),
-            submittedBy: document.getElementById('prop-author').value.trim()
-          }
-        }
-      }, '*');
-    };
+      if (el) {
+        el.textContent = '✓ Request submitted — the DS team will be in touch';
+        el.className = 'status-msg ok';
+      }
+      // Show a make-another button
+      const btn = document.getElementById('btn-submit-token');
+      if (btn) { btn.disabled = true; btn.textContent = '✓ Submitted'; }
+      const another = document.getElementById('btn-another-token');
+      if (another) another.style.display = 'block';
+    }
+
+    function reqReset() { reqStep('0'); }
+
+    // Component flow
+    function reqAnalyseComponent() {
+      const text = document.getElementById('req-comp-intent').value.trim();
+      if (!text) { alert('Describe the component first.'); return; }
+      REQ.compIntent = text;
+      // Broader stopwords to avoid request verbs and generic nouns
+      const stopwords = new Set(['a','an','the','that','shows','with','and','or','for','on','to','in','of','used','is','it','need','new','want','create','make','build','add','get','show','display','which','can','will','should','would','could','have','has','this','type','style','some','its','our','my','we','us','you','they','them','page','screen','view','section','area','content','data','text','item','element','component','layout']);
+      const words = text.toLowerCase().replace(/[^\w\s]/g,'').split(/\s+/).filter(w => !stopwords.has(w) && w.length > 2);
+      // Take the most meaningful noun (last clear noun tends to be the component type)
+      const compNouns = ['card','button','banner','bar','modal','drawer','tag','chip','badge','nav','menu','toast','alert','tooltip','picker','input','select','slider','toggle','checkbox','radio','tab','accordion','carousel','spinner','avatar','thumbnail','tile','list','table','form','panel','header','footer','hero','grid'];
+      const found = compNouns.find(n => text.toLowerCase().includes(n));
+      const nameWords = words.slice(0,2);
+      REQ.compName = found ? (nameWords.find(w => w !== found) ? nameWords.find(w => w !== found) + '.' + found : found) : (nameWords.join('.') || '[component name]');
+      REQ.compType = /card|tile/i.test(text) ? 'Composite (card pattern)' : /button|action|cta/i.test(text) ? 'Interactive' : /bar|status|progress|tracker/i.test(text) ? 'Indicator' : /modal|drawer|sheet/i.test(text) ? 'Overlay' : /banner|hero/i.test(text) ? 'Promotional' : 'Composite';
+      document.getElementById('rc-name').textContent = REQ.compName || '[ds team to confirm]';
+      document.getElementById('rc-type').textContent = REQ.compType;
+      reqStep('c2');
+    }
+
+    function reqComponentPreview() {
+      REQ.compWhy = document.getElementById('rc-why').value.trim();
+      const plats = [...document.querySelectorAll('#rc-plat-grid input:checked')].map(c => c.closest('label').textContent.trim());
+      REQ.compPlatforms = plats;
+      document.getElementById('rcp-name').textContent = REQ.compName;
+      document.getElementById('rcp-platforms').textContent = plats.join(' · ') || '—';
+      document.getElementById('rcp-intent').textContent = REQ.compIntent;
+      document.getElementById('rcp-why').textContent = REQ.compWhy || 'No reason provided.';
+      const copy = '## ⚙️ Component request\n\n' +
+        '**Component name:** ' + REQ.compName + '\n' +
+        '**Type:** ' + REQ.compType + '\n' +
+        '**Platforms:** ' + (plats.join(', ') || '—') + '\n\n' +
+        '**What it needs to do:**\n' + REQ.compIntent + '\n\n' +
+        '**Why existing components don\'t work:**\n' + (REQ.compWhy || 'No reason provided.') + '\n\n' +
+        '**Requested via:** Thread DS Plugin';
+      REQ.compCopyText = copy;
+      reqStep('c3');
+    }
+
+    function reqCompSubmit() {
+      parent.postMessage({pluginMessage:{type:'PROPOSE_TOKEN', payload:{
+        collectionName: 'Component',
+        proposedName: REQ.compName,
+        platforms: REQ.compPlatforms,
+        intent: REQ.compIntent,
+        why: REQ.compWhy
+      }}}, '*');
+      const el = document.getElementById('propose-status-comp');
+      if (el) {
+        el.textContent = '✓ Request submitted — the DS team will be in touch';
+        el.className = 'status-msg ok';
+      }
+      const btn = document.getElementById('btn-submit-comp');
+      if (btn) { btn.disabled = true; btn.textContent = '✓ Submitted'; }
+      const another = document.getElementById('btn-another-comp');
+      if (another) another.style.display = 'block';
+    }
 
     // ── Start a component ───────────────────────────────────────────────────────
     const propsList = document.getElementById('sc-props-list');
@@ -1041,21 +1508,12 @@
 
       if (msg.type === 'PROPOSE_OK') {
         const el = document.getElementById('propose-status');
-        el.textContent = '✓ Request sent — the DS team will be in touch';
-        el.className = 'status-msg ok';
-        btnPropose.disabled = false;
-        // Clear the form
-        propName.value = '';
-        document.getElementById('prop-alias').value = '';
-        document.getElementById('prop-rationale').value = '';
-        propNameStatus.textContent = '';
+        if (el) { el.textContent = '✓ Request sent — the DS team will be in touch'; el.className = 'status-msg ok'; }
       }
 
       if (msg.type === 'PROPOSE_ERR') {
         const el = document.getElementById('propose-status');
-        el.textContent = msg.error;
-        el.className = 'status-msg err';
-        btnPropose.disabled = false;
+        if (el) { el.textContent = msg.error; el.className = 'status-msg err'; }
       }
 
       if (msg.type === 'SCAFFOLD_OK') {
