@@ -563,23 +563,6 @@
         </svg>
       </div>
 
-      <div class="action-card" onclick="openScreen('build', 'Start a component')">
-        <div class="action-icon start">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="6" height="6" rx="1.5"/>
-            <rect x="11" y="3" width="6" height="6" rx="1.5"/>
-            <rect x="3" y="11" width="6" height="6" rx="1.5"/>
-            <rect x="11" y="11" width="6" height="6" rx="1.5"/>
-          </svg>
-        </div>
-        <div class="action-text">
-          <div class="action-title">Start a component</div>
-          <div class="action-desc">Create a starter frame with the right tokens already applied</div>
-        </div>
-        <svg class="action-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 4l4 4-4 4"/>
-        </svg>
-      </div>
 
       <div class="action-card" onclick="openScreen('check', 'Check my work')">
         <div class="action-icon check">
@@ -876,53 +859,6 @@
         <button class="btn btn-secondary" id="btn-another-comp" onclick="reqReset()" style="margin-top:8px;display:none;">Make another request</button>
       </div>
 
-    </div>
-
-    <!-- ── START A COMPONENT ── -->
-    <div id="screen-build" class="screen">
-      <div class="screen-body">
-
-        <div class="field">
-          <label class="field-label">Component name</label>
-          <input type="text" id="sc-name" placeholder="e.g. notification-card" autocomplete="off" autocorrect="off" spellcheck="false" />
-          <div class="field-hint">Lowercase, hyphenated. This becomes the component set name on canvas.</div>
-        </div>
-
-        <div class="field">
-          <label class="field-label">Layout direction</label>
-          <select id="sc-base">
-            <option value="surface-horizontal">Horizontal</option>
-            <option value="surface-vertical">Vertical</option>
-            <option value="inline-horizontal">Horizontal — inline</option>
-            <option value="inline-vertical">Vertical — inline</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label class="field-label">Token set</label>
-          <select id="sc-preset">
-            <option value="decision-surface">Decision — success, warning, error, info</option>
-            <option value="action-surface">Action — primary, secondary, accent</option>
-            <option value="base-surface">Base — default, subtle, inverted</option>
-            <option value="none">None — I'll add tokens manually</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label class="field-label">Variants</label>
-          <div class="field-hint" style="margin-bottom:8px;">One property per row. Format: <code style="font-family:monospace;font-size:10px;background:var(--grey-100);padding:1px 4px;border-radius:3px;">Name: option1, option2</code></div>
-          <div id="sc-props-list"></div>
-          <button class="btn-add-prop" id="btn-add-prop">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-              <path d="M6 1v10M1 6h10"/>
-            </svg>
-            Add variant property
-          </button>
-        </div>
-
-        <button class="btn btn-primary" id="btn-scaffold">Create on canvas</button>
-        <div class="status-msg" id="scaffold-status"></div>
-      </div>
     </div>
 
     <!-- ── CHECK MY WORK ── -->
@@ -1353,58 +1289,6 @@
       if (another) another.style.display = 'block';
     }
 
-    // ── Start a component ───────────────────────────────────────────────────────
-    const propsList = document.getElementById('sc-props-list');
-
-    function addPropRow(value) {
-      const row = document.createElement('div');
-      row.className = 'prop-row';
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.placeholder = 'e.g. Type: success, warning, error';
-      inp.value = value || '';
-      inp.autocomplete = 'off';
-      const rem = document.createElement('button');
-      rem.className = 'btn-prop-remove';
-      rem.innerHTML = '&times;';
-      rem.onclick = () => row.remove();
-      row.appendChild(inp);
-      row.appendChild(rem);
-      propsList.appendChild(row);
-    }
-
-    addPropRow('Type: success, warning, error, information');
-    document.getElementById('btn-add-prop').onclick = () => addPropRow('');
-
-    document.getElementById('btn-scaffold').onclick = () => {
-      const componentName = document.getElementById('sc-name').value.trim();
-      const el = document.getElementById('scaffold-status');
-      if (!componentName) {
-        el.textContent = 'Give your component a name first.';
-        el.className = 'status-msg err';
-        return;
-      }
-      const variantProps = Array.from(propsList.querySelectorAll('input'))
-        .map(i => i.value.trim()).filter(Boolean);
-      if (!variantProps.length) {
-        el.textContent = 'Add at least one variant property.';
-        el.className = 'status-msg err';
-        return;
-      }
-      document.getElementById('btn-scaffold').disabled = true;
-      el.textContent = 'Creating on canvas…';
-      el.className = 'status-msg muted';
-      parent.postMessage({
-        pluginMessage: {
-          type: 'SCAFFOLD_COMPONENT',
-          componentName,
-          baseType: document.getElementById('sc-base').value,
-          variantProps,
-          tokenPreset: document.getElementById('sc-preset').value
-        }
-      }, '*');
-    };
-
     // ── Check my work ───────────────────────────────────────────────────────────
     document.getElementById('btn-audit').onclick = () => {
       document.getElementById('btn-audit').disabled = true;
@@ -1595,20 +1479,6 @@
       if (msg.type === 'PROPOSE_ERR') {
         const el = document.getElementById('propose-status');
         if (el) { el.textContent = msg.error; el.className = 'status-msg err'; }
-      }
-
-      if (msg.type === 'SCAFFOLD_OK') {
-        const el = document.getElementById('scaffold-status');
-        el.textContent = '✓ "' + msg.name + '" created — it\'s selected on your canvas';
-        el.className = 'status-msg ok';
-        document.getElementById('btn-scaffold').disabled = false;
-      }
-
-      if (msg.type === 'SCAFFOLD_ERR') {
-        const el = document.getElementById('scaffold-status');
-        el.textContent = msg.error;
-        el.className = 'status-msg err';
-        document.getElementById('btn-scaffold').disabled = false;
       }
 
       if (msg.type === 'AUDIT_RESULT') {
