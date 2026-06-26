@@ -1434,23 +1434,79 @@
       results.style.display = 'block';
 
       if (!issues || issues.length === 0) {
-        inner.innerHTML = '<div style="background:var(--green-bg);border-radius:10px;padding:20px;text-align:center;"><div style="font-size:24px;margin-bottom:8px;">✓</div><div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:4px;">All clear</div><div style="font-size:11px;color:var(--grey-600);">No raw values found — everything uses Thread DS tokens.</div></div>';
+        inner.innerHTML = '<div style="background:#F0FBF4;border-radius:10px;padding:20px;text-align:center;"><div style="font-size:22px;margin-bottom:6px;">✓</div><div style="font-size:13px;font-weight:700;color:#1A7F4B;margin-bottom:4px;">All clear</div><div style="font-size:11px;color:var(--grey-600);">Everything is using Thread DS tokens.</div></div>';
         return;
       }
 
-      const errors = issues.filter(i => i.severity === 'error').length;
-      const warnings = issues.filter(i => i.severity === 'warning').length;
-      let html = '<div class="audit-summary-bar">';
-      if (errors) html += '<div class="audit-pill errors"><div class="audit-pill-count">' + errors + '</div><div class="audit-pill-label">to fix</div></div>';
-      if (warnings) html += '<div class="audit-pill warnings"><div class="audit-pill-count">' + warnings + '</div><div class="audit-pill-label">to review</div></div>';
-      html += '</div><div class="audit-list">';
+      // Group issues by nodeId
+      const grouped = {};
       for (const issue of issues) {
-        html += '<div class="audit-item ' + issue.severity + '">';
-        html += '<div class="audit-item-row"><span class="audit-item-name">' + esc(issue.nodeName) + '</span><span class="audit-badge ' + issue.severity + '">' + (issue.severity === 'error' ? 'Fix' : 'Review') + '</span></div>';
-        html += '<div class="audit-item-detail"><code>' + esc(issue.raw) + '</code> on <strong>' + esc(issue.property) + '</strong> → ' + esc(issue.suggested) + '</div>';
-        html += '</div>';
+        if (!grouped[issue.nodeId]) {
+          grouped[issue.nodeId] = { nodeId: issue.nodeId, nodeName: issue.nodeName, errors: [], warnings: [] };
+        }
+        if (issue.severity === 'error') grouped[issue.nodeId].errors.push(issue);
+        else grouped[issue.nodeId].warnings.push(issue);
       }
+      const nodes = Object.values(grouped);
+
+      const errorNodes = nodes.filter(n => n.errors.length > 0);
+      const warningNodes = nodes.filter(n => n.warnings.length === 0 || n.errors.length > 0 ? false : true);
+      const totalErrors = issues.filter(i => i.severity === 'error').length;
+      const totalWarnings = issues.filter(i => i.severity === 'warning').length;
+
+      // Summarise property types for a node
+      function summariseErrors(errs) {
+        const colours = errs.filter(e => e.property.startsWith('fill') || e.property === 'stroke').length;
+        const text = errs.filter(e => e.property === 'textStyle').length;
+        const parts = [];
+        if (colours) parts.push(colours + ' hardcoded colour' + (colours > 1 ? 's' : ''));
+        if (text) parts.push(text + ' missing text style' + (text > 1 ? 's' : ''));
+        return parts.join(', ') || errs.length + ' issue' + (errs.length > 1 ? 's' : '');
+      }
+
+      function summariseWarnings(warns) {
+        const spacing = warns.filter(w => ['itemSpacing','paddingTop','paddingRight','paddingBottom','paddingLeft'].includes(w.property)).length;
+        const radius = warns.filter(w => w.property === 'cornerRadius').length;
+        const parts = [];
+        if (spacing) parts.push(spacing + ' unbound spacing value' + (spacing > 1 ? 's' : ''));
+        if (radius) parts.push(radius + ' unbound radius value' + (radius > 1 ? 's' : ''));
+        return parts.join(', ') || warns.length + ' value' + (warns.length > 1 ? 's' : '') + ' to review';
+      }
+
+      function figmaLink(nodeId) {
+        return 'figma://file/open?node_id=' + encodeURIComponent(nodeId);
+      }
+
+      function renderSection(sectionNodes, sectionType, label, count) {
+        if (!count) return '';
+        const sectionId = 'audit-section-' + sectionType;
+        let s = '<div style="margin-bottom:12px;">';
+        s += '<button onclick="var b=document.getElementById('' + sectionId + '');b.style.display=b.style.display==='none'?'flex':'none';" style="width:100%;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+        s += '<span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:' + (sectionType==='error' ? '#C0392B' : '#B07D00') + ';">' + label + '</span>';
+        s += '<span style="font-size:11px;color:var(--grey-400);">' + count + ' layer' + (count > 1 ? 's' : '') + ' · tap to expand</span>';
+        s += '</button>';
+        s += '<div id="' + sectionId + '" style="display:none;flex-direction:column;gap:6px;">';
+        for (const node of sectionNodes) {
+          const summary = sectionType === 'error' ? summariseErrors(node.errors) : summariseWarnings(node.warnings);
+          s += '<div style="background:#fff;border:1px solid ' + (sectionType==='error' ? '#FDDBD8' : '#FFF0C2') + ';border-radius:8px;padding:10px 12px;">';
+          s += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">';
+          s += '<span style="font-size:11px;font-weight:600;color:var(--grey-900);word-break:break-word;flex:1;">' + esc(node.nodeName) + '</span>';
+          s += '<a href="' + figmaLink(node.nodeId) + '" style="font-size:10px;color:var(--purple);white-space:nowrap;text-decoration:none;font-weight:600;flex-shrink:0;">View ↗</a>';
+          s += '</div>';
+          s += '<div style="font-size:11px;color:var(--grey-500);margin-top:3px;">' + esc(summary) + '</div>';
+          s += '</div>';
+        }
+        s += '</div></div>';
+        return s;
+      }
+
+      let html = '<div style="display:flex;gap:8px;margin-bottom:14px;">';
+      if (totalErrors) html += '<div style="flex:1;background:#FEF0EF;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:18px;font-weight:800;color:#C0392B;">' + errorNodes.length + '</div><div style="font-size:10px;color:#C0392B;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">to fix</div></div>';
+      if (totalWarnings) html += '<div style="flex:1;background:#FFFBEA;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:18px;font-weight:800;color:#B07D00;">' + warningNodes.length + '</div><div style="font-size:10px;color:#B07D00;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">to review</div></div>';
       html += '</div>';
+      html += renderSection(errorNodes, 'error', 'Needs fixing', errorNodes.length);
+      html += renderSection(warningNodes, 'warning', 'Worth checking', warningNodes.length);
+
       inner.innerHTML = html;
     }
 
