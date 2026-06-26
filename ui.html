@@ -1514,6 +1514,14 @@
       return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    document.addEventListener('click', function(e) {
+      const btn = e.target.closest('button[data-toggle]');
+      if (!btn) return;
+      const targetId = btn.getAttribute('data-toggle');
+      const el = document.getElementById(targetId);
+      if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+    });
+
     // ── Message handler ─────────────────────────────────────────────────────────
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
