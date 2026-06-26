@@ -24,6 +24,7 @@ interface AuditIssue {
 interface ProposePayload {
   collectionName: string;
   proposedName: string;
+  proposedValue: string;
   aliasTo: string;
   rationale: string;
   submittedBy: string;
@@ -195,31 +196,49 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
   const now = new Date().toISOString();
   const files: FilePush[] = [];
 
-  // ── Variables
-  onProgress("Exporting variables…");
-  const variables = await exportVariables();
-  files.push({
-    path: "packages/tokens/exports/figma-variables.json",
-    content: JSON.stringify(variables, null, 2),
-    message: "chore: sync figma variables" + tag + tag
-  });
+  // ── Detect which Figma file we're running from
+  const TOKENS_FILE_NAME = "Thread DS - Tokens";
+  const COMPONENTS_FILE_NAME = "Thread DS";
+  const fileName = figma.root.name;
+  const isTokensFile = fileName.includes("Token") || fileName.includes("token");
+  const isComponentsFile = !isTokensFile;
 
-  // ── Text styles
-  onProgress("Exporting text styles…");
-  const textStyles = await exportTextStyles();
-  files.push({
-    path: "docs/figma-make/text-styles.json",
-    content: JSON.stringify(textStyles, null, 2),
-    message: "chore: sync text-styles.json" + tag + tag
-  });
+  onProgress("Detected file: " + fileName + " → " + (isTokensFile ? "Tokens mode" : "Components mode"));
 
+  if (isTokensFile) {
+    // ── Tokens file: export variables and text styles only
+    onProgress("Exporting variables…");
+    const variables = await exportVariables();
+    files.push({
+      path: "packages/tokens/exports/figma-variables.json",
+      content: JSON.stringify(variables, null, 2),
+      message: "chore: sync figma variables" + tag + tag
+    });
+
+    onProgress("Exporting text styles…");
+    const textStyles = await exportTextStyles();
+    files.push({
+      path: "docs/figma-make/text-styles.json",
+      content: JSON.stringify(textStyles, null, 2),
+      message: "chore: sync text-styles.json" + tag + tag
+    });
+
+    return files;
+  }
+
+  // ── Components file: export components and icons only
   // ── Find all COMPONENT_SETs
   onProgress("Loading all pages…");
   await figma.loadAllPagesAsync();
   onProgress("Scanning components and icons…");
   const allSets = findAllComponentSets(figma.root);
-  const iconSets = allSets.filter((n) => n.name.includes("/"));
-  const componentSets = allSets.filter((n) => !n.name.includes("/"));
+  // Icons live on the dedicated Icons page (id: 616:47007) - filter by page ancestry not name
+  const ICONS_PAGE_ID = "616:47007";
+  const iconSets = allSets.filter((n) => {
+    const p = n.parent;
+    return p?.id === ICONS_PAGE_ID || p?.parent?.id === ICONS_PAGE_ID;
+  });
+  const componentSets = allSets.filter((n) => !iconSets.includes(n) && !n.name.startsWith("_"));
 
   // ── components.json
   onProgress("Building components.json (" + componentSets.length + " components)…");
@@ -509,6 +528,38 @@ async function runAudit(): Promise<AuditIssue[]> {
   return issues;
 }
 
+// ─── Token Value Check ───────────────────────────────────────────────────────
+async function checkTokenValueExists(proposedValue: string, collectionName: string): Promise<{ exists: boolean; matchingToken?: string }> {
+  const allVars = await figma.variables.getLocalVariablesAsync();
+  const allCollections = await figma.variables.getLocalVariableCollectionsAsync();
+
+  // Parse the proposed value as a number (strip px, spaces etc)
+  const numericValue = parseFloat(proposedValue.replace(/[^0-9.]/g, ""));
+  if (isNaN(numericValue)) return { exists: false };
+
+  // Find the matching collection by name (case-insensitive partial match)
+  const collection = allCollections.find(c =>
+    c.name.toLowerCase().includes(collectionName.toLowerCase()) ||
+    collectionName.toLowerCase().includes(c.name.toLowerCase())
+  );
+  const collectionId = collection ? collection.id : null;
+
+  for (const variable of allVars) {
+    // Only check variables in the relevant collection if we found one
+    if (collectionId && variable.variableCollectionId !== collectionId) continue;
+    // Only check FLOAT type variables (spacing, radius etc)
+    if (variable.resolvedType !== "FLOAT") continue;
+
+    for (const modeId of Object.keys(variable.valuesByMode)) {
+      const val = variable.valuesByMode[modeId];
+      if (typeof val === "number" && val === numericValue) {
+        return { exists: true, matchingToken: variable.name };
+      }
+    }
+  }
+  return { exists: false };
+}
+
 // ─── Token Propose ────────────────────────────────────────────────────────────
 function validateTokenName(name: string): string | null {
   if (!/^[a-z][a-z0-9]*(?:\/[a-z][a-z0-9-]*){1,}$/.test(name)) {
@@ -525,6 +576,17 @@ async function proposeToken(payload: ProposePayload): Promise<void> {
   const existing = allVars.find(v => v.name === payload.proposedName);
   if (existing) {
     throw new Error("Token '" + payload.proposedName + "' already exists (ID: " + existing.id + ").");
+  }
+
+  // Check if a token with this value already exists in the same collection
+  if (payload.proposedValue) {
+    const valueCheck = await checkTokenValueExists(payload.proposedValue, payload.collectionName);
+    if (valueCheck.exists) {
+      throw new Error(
+        "A token with this value already exists in Thread DS: '" + valueCheck.matchingToken + "'. " +
+        "Use the existing token instead of creating a new one."
+      );
+    }
   }
 
   if (payload.aliasTo) {
@@ -778,6 +840,15 @@ async function main() {
         figma.ui.postMessage({ type: "PROPOSE_OK" });
       } catch (e) {
         figma.ui.postMessage({ type: "PROPOSE_ERR", error: String(e) });
+      }
+    }
+
+    if (msg.type === "FOCUS_NODE") {
+      const node = await figma.getNodeByIdAsync(msg.nodeId);
+      if (node && "type" in node) {
+        const sceneNode = node as SceneNode;
+        figma.currentPage.selection = [sceneNode];
+        figma.viewport.scrollAndZoomIntoView([sceneNode]);
       }
     }
 

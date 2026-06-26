@@ -1491,7 +1491,7 @@
           s += '<div style="background:#fff;border:1px solid ' + (sectionType==='error' ? '#FDDBD8' : '#FFF0C2') + ';border-radius:8px;padding:10px 12px;">';
           s += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">';
           s += '<span style="font-size:11px;font-weight:600;color:var(--grey-900);word-break:break-word;flex:1;">' + esc(node.nodeName) + '</span>';
-          s += '<a href="' + figmaLink(node.nodeId) + '" style="font-size:10px;color:var(--purple);white-space:nowrap;text-decoration:none;font-weight:600;flex-shrink:0;">View ↗</a>';
+          s += '<button data-focus-node="' + esc(node.nodeId) + '" style="font-size:10px;color:var(--purple);white-space:nowrap;background:none;border:none;cursor:pointer;font-weight:600;flex-shrink:0;padding:0;">View ↗</button>';
           s += '</div>';
           s += '<div style="font-size:11px;color:var(--grey-500);margin-top:3px;">' + esc(summary) + '</div>';
           s += '</div>';
@@ -1515,11 +1515,18 @@
     }
 
     document.addEventListener('click', function(e) {
-      const btn = e.target.closest('button[data-toggle]');
-      if (!btn) return;
-      const targetId = btn.getAttribute('data-toggle');
-      const el = document.getElementById(targetId);
-      if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+      const toggleBtn = e.target.closest('button[data-toggle]');
+      if (toggleBtn) {
+        const targetId = toggleBtn.getAttribute('data-toggle');
+        const el = document.getElementById(targetId);
+        if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+        return;
+      }
+      const focusBtn = e.target.closest('button[data-focus-node]');
+      if (focusBtn) {
+        const nodeId = focusBtn.getAttribute('data-focus-node');
+        parent.postMessage({ pluginMessage: { type: 'FOCUS_NODE', nodeId: nodeId } }, '*');
+      }
     });
 
     // ── Message handler ─────────────────────────────────────────────────────────
