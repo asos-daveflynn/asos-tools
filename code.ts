@@ -506,6 +506,8 @@ function auditNode(node: SceneNode, allVarNames: Set<string>): AuditIssue[] {
 }
 
 function walkAndAudit(node: SceneNode, allVarNames: Set<string>, results: AuditIssue[]) {
+  // Skip hidden layers
+  if (!node.visible) return;
   results.push(...auditNode(node, allVarNames));
   if ("children" in node) {
     for (const child of (node as ChildrenMixin).children) {
