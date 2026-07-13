@@ -58,6 +58,40 @@ function toBase64(str: string): string {
     out += (i + 2 < bytes.length) ? chars[b2 & 63] : "=";
   }
   return out;
+  
+}
+
+function fromBase64(b64: string): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const clean = b64.replace(/[\r\n]/g, "");
+  const bytes: number[] = [];
+  let buffer = 0, bits = 0;
+  for (const ch of clean) {
+    if (ch === "=") break;
+    const val = chars.indexOf(ch);
+    if (val === -1) continue;
+    buffer = (buffer << 6) | val;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+  let out = "";
+  let i = 0;
+  while (i < bytes.length) {
+    const b0 = bytes[i++];
+    if (b0 < 128) {
+      out += String.fromCharCode(b0);
+    } else if (b0 >> 5 === 0b110) {
+      const b1 = bytes[i++];
+      out += String.fromCharCode(((b0 & 0x1f) << 6) | (b1 & 0x3f));
+    } else if (b0 >> 4 === 0b1110) {
+      const b1 = bytes[i++], b2 = bytes[i++];
+      out += String.fromCharCode(((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f));
+    }
+  }
+  return out;
 }
 
 // ─── GitHub PUT ───────────────────────────────────────────────────────────────
@@ -79,6 +113,24 @@ async function githubPut(settings: Settings, file: FilePush) {
   const putRes = await fetch(url, { method: "PUT", headers, body: JSON.stringify(body) });
   if (!putRes.ok) {
     throw new Error("GitHub " + putRes.status + " on " + file.path + ": " + (await putRes.text()));
+  }
+}
+
+async function fetchGithubJson<T>(settings: Settings, path: string): Promise<T | null> {
+  const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + path + "?ref=" + settings.branch;
+  const res = await fetch(url, {
+    headers: {
+      "Authorization": "Bearer " + settings.pat,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    }
+  });
+  if (!res.ok) return null;
+  const json = await res.json() as { content: string };
+  try {
+    return JSON.parse(fromBase64(json.content)) as T;
+  } catch {
+    return null;
   }
 }
 
@@ -367,6 +419,15 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
       message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
     });
   }
+
+// ── Pull last-published token/text-style data for design-contract.json
+  onProgress("Fetching published token data for design-contract.json…");
+  const variables = (await fetchGithubJson<{ collections: object[]; modes: object[]; variables: object[] }>(
+    settings, "packages/tokens/exports/figma-variables.json"
+  )) ?? { collections: [], modes: [], variables: [] };
+  const textStyles = (await fetchGithubJson<object[]>(
+    settings, "docs/figma-make/text-styles.json"
+  )) ?? [];
 
   // ── design-contract.json
   files.push({

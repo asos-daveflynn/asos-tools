@@ -50,6 +50,38 @@
     }
     return out;
   }
+  function fromBase64(b64) {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const clean = b64.replace(/[\r\n]/g, "");
+    const bytes = [];
+    let buffer = 0, bits = 0;
+    for (const ch of clean) {
+      if (ch === "=") break;
+      const val = chars.indexOf(ch);
+      if (val === -1) continue;
+      buffer = buffer << 6 | val;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        bytes.push(buffer >> bits & 255);
+      }
+    }
+    let out = "";
+    let i = 0;
+    while (i < bytes.length) {
+      const b0 = bytes[i++];
+      if (b0 < 128) {
+        out += String.fromCharCode(b0);
+      } else if (b0 >> 5 === 6) {
+        const b1 = bytes[i++];
+        out += String.fromCharCode((b0 & 31) << 6 | b1 & 63);
+      } else if (b0 >> 4 === 14) {
+        const b1 = bytes[i++], b2 = bytes[i++];
+        out += String.fromCharCode((b0 & 15) << 12 | (b1 & 63) << 6 | b2 & 63);
+      }
+    }
+    return out;
+  }
   function githubPut(settings, file) {
     return __async(this, null, function* () {
       const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + file.path;
@@ -69,6 +101,25 @@
       const putRes = yield fetch(url, { method: "PUT", headers, body: JSON.stringify(body) });
       if (!putRes.ok) {
         throw new Error("GitHub " + putRes.status + " on " + file.path + ": " + (yield putRes.text()));
+      }
+    });
+  }
+  function fetchGithubJson(settings, path) {
+    return __async(this, null, function* () {
+      const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + path + "?ref=" + settings.branch;
+      const res = yield fetch(url, {
+        headers: {
+          "Authorization": "Bearer " + settings.pat,
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        }
+      });
+      if (!res.ok) return null;
+      const json = yield res.json();
+      try {
+        return JSON.parse(fromBase64(json.content));
+      } catch (e) {
+        return null;
       }
     });
   }
@@ -181,7 +232,7 @@
   }
   function buildAllPayloads(settings, syncVersion, onProgress) {
     return __async(this, null, function* () {
-      var _a, _b, _c, _d, _e, _f, _g, _h;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
       const tag = " [sync #" + syncVersion + "]";
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const files = [];
@@ -326,6 +377,15 @@
           message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
         });
       }
+      onProgress("Fetching published token data for design-contract.json\u2026");
+      const variables = (_i = yield fetchGithubJson(
+        settings,
+        "packages/tokens/exports/figma-variables.json"
+      )) != null ? _i : { collections: [], modes: [], variables: [] };
+      const textStyles = (_j = yield fetchGithubJson(
+        settings,
+        "docs/figma-make/text-styles.json"
+      )) != null ? _j : [];
       files.push({
         path: "docs/figma-make/design-contract.json",
         content: JSON.stringify({
