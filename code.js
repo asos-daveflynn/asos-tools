@@ -108,6 +108,56 @@ async function githubPut(settings, file) {
         throw new Error("GitHub " + putRes.status + " on " + file.path + ": " + (await putRes.text()));
     }
 }
+// ─── design-contract.json builder ─────────────────────────────────────────────
+// Tokens, Icons and Components each live in a separate Figma file, and a
+// plugin can't open or drive another file — so we can't force them to sync
+// in a fixed order. Instead this rebuilds design-contract.json on every
+// sync, from whichever file it runs in: whatever this run just computed
+// locally is used directly, and everything else is read back from the other
+// two files' last published output. That keeps the manifest correct after
+// whichever sync you happen to run last, regardless of order.
+async function buildDesignContract(settings, now, tag, local) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+    const variables = (_b = (_a = local.variables) !== null && _a !== void 0 ? _a : (await fetchGithubJson(settings, "packages/tokens/exports/figma-variables.json"))) !== null && _b !== void 0 ? _b : { collections: [], modes: [], variables: [] };
+    const textStyles = (_d = (_c = local.textStyles) !== null && _c !== void 0 ? _c : (await fetchGithubJson(settings, "docs/figma-make/text-styles.json"))) !== null && _d !== void 0 ? _d : [];
+    const iconsIndex = (_f = (_e = local.iconsIndex) !== null && _e !== void 0 ? _e : (await fetchGithubJson(settings, "docs/figma-make/icons.index.json"))) !== null && _f !== void 0 ? _f : { total: 0, groups: [] };
+    const componentsCount = (_j = (_g = local.componentsCount) !== null && _g !== void 0 ? _g : (_h = (await fetchGithubJson(settings, "docs/figma-make/components.json"))) === null || _h === void 0 ? void 0 : _h.length) !== null && _j !== void 0 ? _j : 0;
+    const tokenAuditIssueCount = (_m = (_k = local.tokenAuditIssueCount) !== null && _k !== void 0 ? _k : (_l = (await fetchGithubJson(settings, "docs/figma-make/token-audit.json"))) === null || _l === void 0 ? void 0 : _l.issueCount) !== null && _m !== void 0 ? _m : 0;
+    return {
+        path: "docs/figma-make/design-contract.json",
+        content: JSON.stringify({
+            schema: "thread.ds.design-contract.v1",
+            generatedAt: now,
+            sources: {
+                variables: "packages/tokens/exports/figma-variables.json",
+                components: "docs/figma-make/components.json",
+                componentAnatomy: "docs/figma-make/component-anatomy.json",
+                componentRenderSpecs: "docs/figma-make/component-render-specs.json",
+                textStyles: "docs/figma-make/text-styles.json",
+                icons: "docs/figma-make/icons.json",
+                iconsIndex: "docs/figma-make/icons.index.json",
+                tokenAudit: "docs/figma-make/token-audit.json"
+            },
+            summary: {
+                collections: variables.collections.length,
+                modes: variables.modes.length,
+                variables: variables.variables.length,
+                components: componentsCount,
+                component_anatomy: componentsCount,
+                component_render_specs: componentsCount,
+                text_styles: textStyles.length,
+                icons: iconsIndex.total,
+                icon_groups: iconsIndex.groups.length,
+                token_audit_issues: tokenAuditIssueCount
+            },
+            data: {
+                collections: variables.collections,
+                modes: variables.modes
+            }
+        }, null, 2),
+        message: "chore: sync design-contract.json" + tag + tag
+    };
+}
 async function fetchGithubJson(settings, path) {
     const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + path + "?ref=" + settings.branch;
     const res = await fetch(url, {
@@ -417,7 +467,7 @@ async function exportTextStyles() {
 }
 // ─── Build all file payloads ──────────────────────────────────────────────────
 async function buildAllPayloads(settings, syncVersion, onProgress) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const tag = " [sync #" + syncVersion + "]";
     const now = new Date().toISOString();
     const files = [];
@@ -445,6 +495,8 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
             content: JSON.stringify(textStyles, null, 2),
             message: "chore: sync text-styles.json" + tag + tag
         });
+        onProgress("Refreshing design-contract.json…");
+        files.push(await buildDesignContract(settings, now, tag, { variables, textStyles }));
         return files;
     }
     if (isIconsFile) {
@@ -495,6 +547,10 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
                 message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
             });
         }
+        onProgress("Refreshing design-contract.json…");
+        files.push(await buildDesignContract(settings, now, tag, {
+            iconsIndex: { total: iconSets.length, groups: indexGroups }
+        }));
         return files;
     }
     // ── Components file: export components, anatomy, render specs and the token audit
@@ -595,49 +651,11 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
         }, null, 2),
         message: "chore: sync token-audit.json" + tag + tag
     });
-    // ── Pull last-published data for design-contract.json. Variables/text
-    // styles live in the Tokens file and icons live in the Icons file — neither
-    // is available locally from a Components-file run, so we read back what
-    // each of those files' own sync last published.
-    onProgress("Fetching published token and icon data for design-contract.json…");
-    const variables = (_j = (await fetchGithubJson(settings, "packages/tokens/exports/figma-variables.json"))) !== null && _j !== void 0 ? _j : { collections: [], modes: [], variables: [] };
-    const textStyles = (_k = (await fetchGithubJson(settings, "docs/figma-make/text-styles.json"))) !== null && _k !== void 0 ? _k : [];
-    const iconsIndex = (_l = (await fetchGithubJson(settings, "docs/figma-make/icons.index.json"))) !== null && _l !== void 0 ? _l : { total: 0, groups: [] };
-    // ── design-contract.json
-    files.push({
-        path: "docs/figma-make/design-contract.json",
-        content: JSON.stringify({
-            schema: "thread.ds.design-contract.v1",
-            generatedAt: now,
-            sources: {
-                variables: "packages/tokens/exports/figma-variables.json",
-                components: "docs/figma-make/components.json",
-                componentAnatomy: "docs/figma-make/component-anatomy.json",
-                componentRenderSpecs: "docs/figma-make/component-render-specs.json",
-                textStyles: "docs/figma-make/text-styles.json",
-                icons: "docs/figma-make/icons.json",
-                iconsIndex: "docs/figma-make/icons.index.json",
-                tokenAudit: "docs/figma-make/token-audit.json"
-            },
-            summary: {
-                collections: variables.collections.length,
-                modes: variables.modes.length,
-                variables: variables.variables.length,
-                components: componentSets.length,
-                component_anatomy: componentSets.length,
-                component_render_specs: componentSets.length,
-                text_styles: textStyles.length,
-                icons: iconsIndex.total,
-                icon_groups: iconsIndex.groups.length,
-                token_audit_issues: tokenAuditIssues.length
-            },
-            data: {
-                collections: variables.collections,
-                modes: variables.modes
-            }
-        }, null, 2),
-        message: "chore: sync design-contract.json" + tag + tag
-    });
+    onProgress("Refreshing design-contract.json…");
+    files.push(await buildDesignContract(settings, now, tag, {
+        componentsCount: componentSets.length,
+        tokenAuditIssueCount: tokenAuditIssues.length
+    }));
     return files;
 }
 // ─── Token Audit ──────────────────────────────────────────────────────────────
