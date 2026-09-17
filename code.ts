@@ -36,6 +36,20 @@ function toBase64(str: string): string {
   const bytes: number[] = [];
   for (let i = 0; i < str.length; i++) {
     const c = str.charCodeAt(i);
+    // Surrogate pair (e.g. emoji) — combine into one code point and emit
+    // a 4-byte UTF-8 sequence instead of encoding each half separately.
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < str.length) {
+      const low = str.charCodeAt(i + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        const codePoint = 0x10000 + (c - 0xd800) * 0x400 + (low - 0xdc00);
+        bytes.push(240 | (codePoint >> 18));
+        bytes.push(128 | ((codePoint >> 12) & 63));
+        bytes.push(128 | ((codePoint >> 6) & 63));
+        bytes.push(128 | (codePoint & 63));
+        i++;
+        continue;
+      }
+    }
     if (c < 128) {
       bytes.push(c);
     } else if (c < 2048) {
@@ -89,6 +103,11 @@ function fromBase64(b64: string): string {
     } else if (b0 >> 4 === 0b1110) {
       const b1 = bytes[i++], b2 = bytes[i++];
       out += String.fromCharCode(((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f));
+    } else if (b0 >> 3 === 0b11110) {
+      const b1 = bytes[i++], b2 = bytes[i++], b3 = bytes[i++];
+      const codePoint = ((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f);
+      const adjusted = codePoint - 0x10000;
+      out += String.fromCharCode(0xd800 + (adjusted >> 10), 0xdc00 + (adjusted & 0x3ff));
     }
   }
   return out;
@@ -187,6 +206,183 @@ function serialiseComponentSet(node: ComponentSetNode) {
   };
 }
 
+// ─── Deep anatomy: variable resolution ────────────────────────────────────────
+// boundVariables on a node only carry a variable id. Components reference
+// variables published from the separate Tokens file, so they show up as
+// library variables here rather than local ones — getVariableByIdAsync
+// resolves both, which is why we look names up this way instead of building
+// a name map from getLocalVariablesAsync().
+const varNameCache = new Map<string, string>();
+async function resolveVarName(id: string): Promise<string> {
+  if (varNameCache.has(id)) return varNameCache.get(id) as string;
+  let name = "";
+  try {
+    const v = await figma.variables.getVariableByIdAsync(id);
+    name = v?.name ?? "";
+  } catch {
+    name = "";
+  }
+  varNameCache.set(id, name);
+  return name;
+}
+
+async function resolveVarRef(alias: unknown): Promise<{ id: string; name: string } | null> {
+  if (!alias || typeof alias !== "object" || !("id" in (alias as Record<string, unknown>))) return null;
+  const id = (alias as { id: string }).id;
+  const name = await resolveVarName(id);
+  return { id, name };
+}
+
+// ─── Deep anatomy: fill / stroke serialiser ───────────────────────────────────
+async function serialisePaintsDeep(paints: unknown, boundPaints: unknown): Promise<Record<string, unknown>[]> {
+  if (!Array.isArray(paints)) return [];
+  const boundArr = Array.isArray(boundPaints) ? boundPaints : [];
+  const out: Record<string, unknown>[] = [];
+  for (let i = 0; i < paints.length; i++) {
+    const p = paints[i] as Record<string, unknown>;
+    if (p.type !== "SOLID") {
+      out.push({ type: p.type, visible: p.visible ?? true });
+      continue;
+    }
+    const c = p.color as { r: number; g: number; b: number };
+    const boundColor = (boundArr[i] as Record<string, unknown> | undefined)?.color;
+    out.push({
+      type: "SOLID",
+      hex: rgbToHex(c.r, c.g, c.b),
+      opacity: (p.opacity as number) ?? 1,
+      visible: (p.visible as boolean) ?? true,
+      boundVariable: await resolveVarRef(boundColor)
+    });
+  }
+  return out;
+}
+
+// ─── Deep anatomy: auto-layout serialiser ─────────────────────────────────────
+async function serialiseLayoutDeep(n: Record<string, unknown>, bound: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  if (n.layoutMode === undefined) return null;
+  return {
+    layoutMode: n.layoutMode ?? "NONE",
+    primaryAxisAlignItems: n.primaryAxisAlignItems ?? "MIN",
+    counterAxisAlignItems: n.counterAxisAlignItems ?? "MIN",
+    itemSpacing: n.itemSpacing ?? 0,
+    paddingTop: n.paddingTop ?? 0,
+    paddingRight: n.paddingRight ?? 0,
+    paddingBottom: n.paddingBottom ?? 0,
+    paddingLeft: n.paddingLeft ?? 0,
+    cornerRadius: typeof n.cornerRadius === "number" ? n.cornerRadius : null,
+    boundVariables: {
+      itemSpacing: await resolveVarRef(bound.itemSpacing),
+      paddingTop: await resolveVarRef(bound.paddingTop),
+      paddingRight: await resolveVarRef(bound.paddingRight),
+      paddingBottom: await resolveVarRef(bound.paddingBottom),
+      paddingLeft: await resolveVarRef(bound.paddingLeft),
+      cornerRadius: await resolveVarRef(bound.cornerRadius)
+    }
+  };
+}
+
+// ─── Deep anatomy: text layer serialiser ──────────────────────────────────────
+async function serialiseTextDeep(node: TextNode, bound: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const lineHeight = node.lineHeight;
+  const letterSpacing = node.letterSpacing;
+  return {
+    characters: node.characters,
+    textStyleId: typeof node.textStyleId === "string" ? node.textStyleId : "",
+    fontSize: typeof node.fontSize === "number" ? node.fontSize : null,
+    fontName: (typeof node.fontName === "object" && node.fontName && "family" in node.fontName) ? node.fontName : null,
+    lineHeight: (typeof lineHeight === "object" && lineHeight && "value" in lineHeight) ? (lineHeight as { value: number }).value : null,
+    letterSpacing: (typeof letterSpacing === "object" && letterSpacing && "value" in letterSpacing) ? (letterSpacing as { value: number }).value : null,
+    boundVariables: {
+      fontSize: await resolveVarRef(bound.fontSize),
+      lineHeight: await resolveVarRef(bound.lineHeight),
+      letterSpacing: await resolveVarRef(bound.letterSpacing),
+      fontWeight: await resolveVarRef(bound.fontWeight)
+    }
+  };
+}
+
+// ─── Deep anatomy: recursive layer walker ─────────────────────────────────────
+async function serialiseLayerDeep(node: SceneNode): Promise<Record<string, unknown>> {
+  const n = node as unknown as Record<string, unknown>;
+  const bound = (n.boundVariables as Record<string, unknown>) ?? {};
+  const layer: Record<string, unknown> = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    visible: node.visible
+  };
+
+  const layout = await serialiseLayoutDeep(n, bound);
+  if (layout) layer.layout = layout;
+
+  if (Array.isArray(n.fills)) {
+    layer.fills = await serialisePaintsDeep(n.fills, bound.fills);
+  }
+  if (Array.isArray(n.strokes) && (n.strokes as unknown[]).length > 0) {
+    layer.strokes = await serialisePaintsDeep(n.strokes, bound.strokes);
+    layer.strokeWeight = n.strokeWeight ?? null;
+  }
+  if (node.type === "TEXT") {
+    layer.text = await serialiseTextDeep(node as TextNode, bound);
+  }
+  if ("children" in node) {
+    const children: Record<string, unknown>[] = [];
+    for (const child of (node as ChildrenMixin).children) {
+      children.push(await serialiseLayerDeep(child as SceneNode));
+    }
+    layer.children = children;
+  }
+  return layer;
+}
+
+// ─── Deep anatomy: platform behaviour convention parser ───────────────────────
+// Designers add lines like "Web: ..." / "iOS: ..." / "Android: ..." to a
+// component set's description in Figma; we lift them into structured
+// platform guidance instead of leaving them as free text.
+function parsePlatformGuidance(description: string): { web: string; ios: string; android: string } {
+  const guidance = { web: "", ios: "", android: "" };
+  const patterns: [keyof typeof guidance, RegExp][] = [
+    ["web", /^web\s*:\s*/i],
+    ["ios", /^ios\s*:\s*/i],
+    ["android", /^android\s*:\s*/i]
+  ];
+  for (const rawLine of description.split("\n")) {
+    const line = rawLine.trim();
+    for (const [key, re] of patterns) {
+      if (re.test(line)) {
+        guidance[key] = line.replace(re, "").trim();
+      }
+    }
+  }
+  return guidance;
+}
+
+// ─── Deep anatomy: per-variant component-set serialiser ───────────────────────
+async function serialiseComponentSetDeep(node: ComponentSetNode): Promise<Record<string, unknown>> {
+  const variantNodes = (node.children ?? []).filter((c): c is ComponentNode => c.type === "COMPONENT");
+  const variants: Record<string, unknown>[] = [];
+  for (const v of variantNodes) {
+    variants.push({
+      id: v.id,
+      key: v.key,
+      name: v.name,
+      variantProperties: v.variantProperties ?? {},
+      anatomy: await serialiseLayerDeep(v)
+    });
+  }
+  return {
+    id: node.id,
+    key: node.key,
+    name: node.name,
+    type: node.type,
+    description: node.description || "",
+    platformGuidance: parsePlatformGuidance(node.description || ""),
+    componentPropertyDefinitions: node.componentPropertyDefinitions ?? {},
+    variantGroupProperties: node.variantGroupProperties ?? {},
+    variants
+  };
+}
+
 // ─── Export SVG for a single node ─────────────────────────────────────────────
 async function exportSvgFromNode(node: SceneNode): Promise<string> {
   try {
@@ -248,14 +444,15 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
   const now = new Date().toISOString();
   const files: FilePush[] = [];
 
-  // ── Detect which Figma file we're running from
-  const TOKENS_FILE_NAME = "Thread DS - Tokens";
-  const COMPONENTS_FILE_NAME = "Thread DS";
+  // ── Detect which Figma file we're running from.
+  // Tokens, Components and Icons each live in their own separate Figma file
+  // (see thread-ds-context.md), so the plugin behaves differently per file.
   const fileName = figma.root.name;
-  const isTokensFile = fileName.includes("Token") || fileName.includes("token");
-  const isComponentsFile = !isTokensFile;
+  const isTokensFile = /token/i.test(fileName);
+  const isIconsFile = !isTokensFile && /icon/i.test(fileName);
+  const isComponentsFile = !isTokensFile && !isIconsFile;
 
-  onProgress("Detected file: " + fileName + " → " + (isTokensFile ? "Tokens mode" : "Components mode"));
+  onProgress("Detected file: " + fileName + " → " + (isTokensFile ? "Tokens mode" : isIconsFile ? "Icons mode" : "Components mode"));
 
   if (isTokensFile) {
     // ── Tokens file: export variables and text styles only
@@ -278,19 +475,67 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     return files;
   }
 
-  // ── Components file: export components and icons only
-  // ── Find all COMPONENT_SETs
+  if (isIconsFile) {
+    // ── Icons file: every component set in this file is an icon
+    onProgress("Loading all pages…");
+    await figma.loadAllPagesAsync();
+    onProgress("Scanning icons…");
+    const iconSets = findAllComponentSets(figma.root);
+
+    onProgress("Building icons.json (" + iconSets.length + " icon sets)…");
+    const iconsData = iconSets.map(serialiseComponentSet);
+    files.push({
+      path: "docs/figma-make/icons.json",
+      content: JSON.stringify(iconsData, null, 2),
+      message: "chore: sync icons.json" + tag + tag
+    });
+
+    onProgress("Building icon groups…");
+    const groupMap: Record<string, { id: string; key: string; name: string; type: string; description: string; svgString: string }[]> = {};
+    for (let i = 0; i < iconSets.length; i++) {
+      const node = iconSets[i];
+      const groupId = node.name.split("/")[0].toLowerCase().replace(/\s+/g, "-");
+      onProgress("Icon SVG " + (i + 1) + "/" + iconSets.length + ": " + node.name + "…");
+      const svgString = await exportSvg(node);
+      if (!groupMap[groupId]) groupMap[groupId] = [];
+      groupMap[groupId].push({ id: node.id, key: node.key, name: node.name, type: node.type, description: node.description || "", svgString });
+    }
+
+    const indexGroups = Object.entries(groupMap).map(([id, icons]) => ({
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, " "),
+      count: icons.length,
+      hasSvgs: true,
+      path: "figma-make/icons/groups/" + id + ".json"
+    }));
+
+    files.push({
+      path: "docs/figma-make/icons.index.json",
+      content: JSON.stringify({
+        schema: "thread.ds.icons-index.v1",
+        generatedAt: now,
+        total: iconSets.length,
+        groups: indexGroups
+      }, null, 2),
+      message: "chore: sync icons.index.json" + tag + tag
+    });
+
+    for (const [groupId, icons] of Object.entries(groupMap)) {
+      files.push({
+        path: "docs/figma-make/icons/groups/" + groupId + ".json",
+        content: JSON.stringify(icons, null, 2),
+        message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
+      });
+    }
+
+    return files;
+  }
+
+  // ── Components file: export components, anatomy, render specs and the token audit
   onProgress("Loading all pages…");
   await figma.loadAllPagesAsync();
-  onProgress("Scanning components and icons…");
-  const allSets = findAllComponentSets(figma.root);
-  // Icons live on the dedicated Icons page (id: 616:47007) - filter by page ancestry not name
-  const ICONS_PAGE_ID = "616:47007";
-  const iconSets = allSets.filter((n) => {
-    const p = n.parent;
-    return p?.id === ICONS_PAGE_ID || p?.parent?.id === ICONS_PAGE_ID;
-  });
-  const componentSets = allSets.filter((n) => !iconSets.includes(n) && !n.name.startsWith("_"));
+  onProgress("Scanning components…");
+  const componentSets = findAllComponentSets(figma.root).filter((n) => !n.name.startsWith("_"));
 
   // ── components.json
   onProgress("Building components.json (" + componentSets.length + " components)…");
@@ -301,15 +546,21 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     message: "chore: sync components.json" + tag + tag
   });
 
-  // ── component-anatomy.json
+  // ── component-anatomy.json (deep: full per-variant layer tree + bound variables)
+  onProgress("Building deep component anatomy (" + componentSets.length + " components)…");
+  const deepAnatomyComponents: Record<string, unknown>[] = [];
+  for (let i = 0; i < componentSets.length; i++) {
+    onProgress("Anatomy " + (i + 1) + "/" + componentSets.length + ": " + componentSets[i].name + "…");
+    deepAnatomyComponents.push(await serialiseComponentSetDeep(componentSets[i]));
+  }
   files.push({
     path: "docs/figma-make/component-anatomy.json",
     content: JSON.stringify({
-      schema: "thread.ds.component-anatomy.v2",
+      schema: "thread.ds.component-anatomy.v3",
       generatedAt: now,
       source: { fileKey: "", fileName: figma.root.name },
-      detailLevel: "lite",
-      components: componentsData
+      detailLevel: "full",
+      components: deepAnatomyComponents
     }, null, 2),
     message: "chore: sync component-anatomy.json" + tag + tag
   });
@@ -372,62 +623,39 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     message: "chore: sync component-render-specs.json" + tag + tag
   });
 
-  // ── icons.json
-  onProgress("Building icons.json (" + iconSets.length + " icon sets)…");
-  const iconsData = iconSets.map(serialiseComponentSet);
-  files.push({
-    path: "docs/figma-make/icons.json",
-    content: JSON.stringify(iconsData, null, 2),
-    message: "chore: sync icons.json" + tag + tag
-  });
-
-  // ── icons per-group files + index
-  onProgress("Building icon groups…");
-  const groupMap: Record<string, { id: string; key: string; name: string; type: string; description: string; svgString: string }[]> = {};
-  for (let i = 0; i < iconSets.length; i++) {
-    const node = iconSets[i];
-    const groupId = node.name.split("/")[0].toLowerCase().replace(/s+/g, "-");
-    onProgress("Icon SVG " + (i + 1) + "/" + iconSets.length + ": " + node.name + "…");
-    const svgString = await exportSvg(node);
-    if (!groupMap[groupId]) groupMap[groupId] = [];
-    groupMap[groupId].push({ id: node.id, key: node.key, name: node.name, type: node.type, description: node.description || "", svgString });
+  // ── token-audit.json (automated — every component set, not just the current selection)
+  onProgress("Running token audit across all components…");
+  const tokenAuditIssues: AuditIssue[] = [];
+  for (const set of componentSets) {
+    for (const variant of set.children) {
+      walkAndAudit(variant as SceneNode, new Set<string>(), tokenAuditIssues);
+    }
   }
-
-  const indexGroups = Object.entries(groupMap).map(([id, icons]) => ({
-    id,
-    label: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, " "),
-    count: icons.length,
-    hasSvgs: true,
-    path: "figma-make/icons/groups/" + id + ".json"
-  }));
-
   files.push({
-    path: "docs/figma-make/icons.index.json",
+    path: "docs/figma-make/token-audit.json",
     content: JSON.stringify({
-      schema: "thread.ds.icons-index.v1",
+      schema: "thread.ds.token-audit.v1",
       generatedAt: now,
-      total: iconSets.length,
-      groups: indexGroups
+      issueCount: tokenAuditIssues.length,
+      issues: tokenAuditIssues
     }, null, 2),
-    message: "chore: sync icons.index.json" + tag + tag
+    message: "chore: sync token-audit.json" + tag + tag
   });
 
-  for (const [groupId, icons] of Object.entries(groupMap)) {
-    files.push({
-      path: "docs/figma-make/icons/groups/" + groupId + ".json",
-      content: JSON.stringify(icons, null, 2),
-      message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
-    });
-  }
-
-// ── Pull last-published token/text-style data for design-contract.json
-  onProgress("Fetching published token data for design-contract.json…");
+// ── Pull last-published data for design-contract.json. Variables/text
+  // styles live in the Tokens file and icons live in the Icons file — neither
+  // is available locally from a Components-file run, so we read back what
+  // each of those files' own sync last published.
+  onProgress("Fetching published token and icon data for design-contract.json…");
   const variables = (await fetchGithubJson<{ collections: object[]; modes: object[]; variables: object[] }>(
     settings, "packages/tokens/exports/figma-variables.json"
   )) ?? { collections: [], modes: [], variables: [] };
   const textStyles = (await fetchGithubJson<object[]>(
     settings, "docs/figma-make/text-styles.json"
   )) ?? [];
+  const iconsIndex = (await fetchGithubJson<{ total: number; groups: object[] }>(
+    settings, "docs/figma-make/icons.index.json"
+  )) ?? { total: 0, groups: [] };
 
   // ── design-contract.json
   files.push({
@@ -442,7 +670,8 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
         componentRenderSpecs: "docs/figma-make/component-render-specs.json",
         textStyles: "docs/figma-make/text-styles.json",
         icons: "docs/figma-make/icons.json",
-        iconsIndex: "docs/figma-make/icons.index.json"
+        iconsIndex: "docs/figma-make/icons.index.json",
+        tokenAudit: "docs/figma-make/token-audit.json"
       },
       summary: {
         collections: variables.collections.length,
@@ -452,8 +681,9 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
         component_anatomy: componentSets.length,
         component_render_specs: componentSets.length,
         text_styles: textStyles.length,
-        icons: iconSets.length,
-        icon_groups: Object.keys(groupMap).length
+        icons: iconsIndex.total,
+        icon_groups: iconsIndex.groups.length,
+        token_audit_issues: tokenAuditIssues.length
       },
       data: {
         collections: variables.collections,
