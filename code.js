@@ -417,17 +417,18 @@ async function exportTextStyles() {
 }
 // ─── Build all file payloads ──────────────────────────────────────────────────
 async function buildAllPayloads(settings, syncVersion, onProgress) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     const tag = " [sync #" + syncVersion + "]";
     const now = new Date().toISOString();
     const files = [];
-    // ── Detect which Figma file we're running from
-    const TOKENS_FILE_NAME = "Thread DS - Tokens";
-    const COMPONENTS_FILE_NAME = "Thread DS";
+    // ── Detect which Figma file we're running from.
+    // Tokens, Components and Icons each live in their own separate Figma file
+    // (see thread-ds-context.md), so the plugin behaves differently per file.
     const fileName = figma.root.name;
-    const isTokensFile = fileName.includes("Token") || fileName.includes("token");
-    const isComponentsFile = !isTokensFile;
-    onProgress("Detected file: " + fileName + " → " + (isTokensFile ? "Tokens mode" : "Components mode"));
+    const isTokensFile = /token/i.test(fileName);
+    const isIconsFile = !isTokensFile && /icon/i.test(fileName);
+    const isComponentsFile = !isTokensFile && !isIconsFile;
+    onProgress("Detected file: " + fileName + " → " + (isTokensFile ? "Tokens mode" : isIconsFile ? "Icons mode" : "Components mode"));
     if (isTokensFile) {
         // ── Tokens file: export variables and text styles only
         onProgress("Exporting variables…");
@@ -446,20 +447,61 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
         });
         return files;
     }
-    // ── Components file: export components and icons only
-    // ── Find all COMPONENT_SETs
+    if (isIconsFile) {
+        // ── Icons file: every component set in this file is an icon
+        onProgress("Loading all pages…");
+        await figma.loadAllPagesAsync();
+        onProgress("Scanning icons…");
+        const iconSets = findAllComponentSets(figma.root);
+        onProgress("Building icons.json (" + iconSets.length + " icon sets)…");
+        const iconsData = iconSets.map(serialiseComponentSet);
+        files.push({
+            path: "docs/figma-make/icons.json",
+            content: JSON.stringify(iconsData, null, 2),
+            message: "chore: sync icons.json" + tag + tag
+        });
+        onProgress("Building icon groups…");
+        const groupMap = {};
+        for (let i = 0; i < iconSets.length; i++) {
+            const node = iconSets[i];
+            const groupId = node.name.split("/")[0].toLowerCase().replace(/\s+/g, "-");
+            onProgress("Icon SVG " + (i + 1) + "/" + iconSets.length + ": " + node.name + "…");
+            const svgString = await exportSvg(node);
+            if (!groupMap[groupId])
+                groupMap[groupId] = [];
+            groupMap[groupId].push({ id: node.id, key: node.key, name: node.name, type: node.type, description: node.description || "", svgString });
+        }
+        const indexGroups = Object.entries(groupMap).map(([id, icons]) => ({
+            id,
+            label: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, " "),
+            count: icons.length,
+            hasSvgs: true,
+            path: "figma-make/icons/groups/" + id + ".json"
+        }));
+        files.push({
+            path: "docs/figma-make/icons.index.json",
+            content: JSON.stringify({
+                schema: "thread.ds.icons-index.v1",
+                generatedAt: now,
+                total: iconSets.length,
+                groups: indexGroups
+            }, null, 2),
+            message: "chore: sync icons.index.json" + tag + tag
+        });
+        for (const [groupId, icons] of Object.entries(groupMap)) {
+            files.push({
+                path: "docs/figma-make/icons/groups/" + groupId + ".json",
+                content: JSON.stringify(icons, null, 2),
+                message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
+            });
+        }
+        return files;
+    }
+    // ── Components file: export components, anatomy, render specs and the token audit
     onProgress("Loading all pages…");
     await figma.loadAllPagesAsync();
-    onProgress("Scanning components and icons…");
-    const allSets = findAllComponentSets(figma.root);
-    // Icons live on the dedicated Icons page (id: 616:47007) - filter by page ancestry not name
-    const ICONS_PAGE_ID = "616:47007";
-    const iconSets = allSets.filter((n) => {
-        var _a;
-        const p = n.parent;
-        return (p === null || p === void 0 ? void 0 : p.id) === ICONS_PAGE_ID || ((_a = p === null || p === void 0 ? void 0 : p.parent) === null || _a === void 0 ? void 0 : _a.id) === ICONS_PAGE_ID;
-    });
-    const componentSets = allSets.filter((n) => !iconSets.includes(n) && !n.name.startsWith("_"));
+    onProgress("Scanning components…");
+    const componentSets = findAllComponentSets(figma.root).filter((n) => !n.name.startsWith("_"));
     // ── components.json
     onProgress("Building components.json (" + componentSets.length + " components)…");
     const componentsData = componentSets.map(serialiseComponentSet);
@@ -535,50 +577,6 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
         }, null, 2),
         message: "chore: sync component-render-specs.json" + tag + tag
     });
-    // ── icons.json
-    onProgress("Building icons.json (" + iconSets.length + " icon sets)…");
-    const iconsData = iconSets.map(serialiseComponentSet);
-    files.push({
-        path: "docs/figma-make/icons.json",
-        content: JSON.stringify(iconsData, null, 2),
-        message: "chore: sync icons.json" + tag + tag
-    });
-    // ── icons per-group files + index
-    onProgress("Building icon groups…");
-    const groupMap = {};
-    for (let i = 0; i < iconSets.length; i++) {
-        const node = iconSets[i];
-        const groupId = node.name.split("/")[0].toLowerCase().replace(/\s+/g, "-");
-        onProgress("Icon SVG " + (i + 1) + "/" + iconSets.length + ": " + node.name + "…");
-        const svgString = await exportSvg(node);
-        if (!groupMap[groupId])
-            groupMap[groupId] = [];
-        groupMap[groupId].push({ id: node.id, key: node.key, name: node.name, type: node.type, description: node.description || "", svgString });
-    }
-    const indexGroups = Object.entries(groupMap).map(([id, icons]) => ({
-        id,
-        label: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, " "),
-        count: icons.length,
-        hasSvgs: true,
-        path: "figma-make/icons/groups/" + id + ".json"
-    }));
-    files.push({
-        path: "docs/figma-make/icons.index.json",
-        content: JSON.stringify({
-            schema: "thread.ds.icons-index.v1",
-            generatedAt: now,
-            total: iconSets.length,
-            groups: indexGroups
-        }, null, 2),
-        message: "chore: sync icons.index.json" + tag + tag
-    });
-    for (const [groupId, icons] of Object.entries(groupMap)) {
-        files.push({
-            path: "docs/figma-make/icons/groups/" + groupId + ".json",
-            content: JSON.stringify(icons, null, 2),
-            message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
-        });
-    }
     // ── token-audit.json (automated — every component set, not just the current selection)
     onProgress("Running token audit across all components…");
     const tokenAuditIssues = [];
@@ -597,10 +595,14 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
         }, null, 2),
         message: "chore: sync token-audit.json" + tag + tag
     });
-    // ── Pull last-published token/text-style data for design-contract.json
-    onProgress("Fetching published token data for design-contract.json…");
+    // ── Pull last-published data for design-contract.json. Variables/text
+    // styles live in the Tokens file and icons live in the Icons file — neither
+    // is available locally from a Components-file run, so we read back what
+    // each of those files' own sync last published.
+    onProgress("Fetching published token and icon data for design-contract.json…");
     const variables = (_j = (await fetchGithubJson(settings, "packages/tokens/exports/figma-variables.json"))) !== null && _j !== void 0 ? _j : { collections: [], modes: [], variables: [] };
     const textStyles = (_k = (await fetchGithubJson(settings, "docs/figma-make/text-styles.json"))) !== null && _k !== void 0 ? _k : [];
+    const iconsIndex = (_l = (await fetchGithubJson(settings, "docs/figma-make/icons.index.json"))) !== null && _l !== void 0 ? _l : { total: 0, groups: [] };
     // ── design-contract.json
     files.push({
         path: "docs/figma-make/design-contract.json",
@@ -625,8 +627,8 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
                 component_anatomy: componentSets.length,
                 component_render_specs: componentSets.length,
                 text_styles: textStyles.length,
-                icons: iconSets.length,
-                icon_groups: Object.keys(groupMap).length,
+                icons: iconsIndex.total,
+                icon_groups: iconsIndex.groups.length,
                 token_audit_issues: tokenAuditIssues.length
             },
             data: {
