@@ -187,6 +187,183 @@ function serialiseComponentSet(node: ComponentSetNode) {
   };
 }
 
+// ─── Deep anatomy: variable resolution ────────────────────────────────────────
+// boundVariables on a node only carry a variable id. Components reference
+// variables published from the separate Tokens file, so they show up as
+// library variables here rather than local ones — getVariableByIdAsync
+// resolves both, which is why we look names up this way instead of building
+// a name map from getLocalVariablesAsync().
+const varNameCache = new Map<string, string>();
+async function resolveVarName(id: string): Promise<string> {
+  if (varNameCache.has(id)) return varNameCache.get(id) as string;
+  let name = "";
+  try {
+    const v = await figma.variables.getVariableByIdAsync(id);
+    name = v?.name ?? "";
+  } catch {
+    name = "";
+  }
+  varNameCache.set(id, name);
+  return name;
+}
+
+async function resolveVarRef(alias: unknown): Promise<{ id: string; name: string } | null> {
+  if (!alias || typeof alias !== "object" || !("id" in (alias as Record<string, unknown>))) return null;
+  const id = (alias as { id: string }).id;
+  const name = await resolveVarName(id);
+  return { id, name };
+}
+
+// ─── Deep anatomy: fill / stroke serialiser ───────────────────────────────────
+async function serialisePaintsDeep(paints: unknown, boundPaints: unknown): Promise<Record<string, unknown>[]> {
+  if (!Array.isArray(paints)) return [];
+  const boundArr = Array.isArray(boundPaints) ? boundPaints : [];
+  const out: Record<string, unknown>[] = [];
+  for (let i = 0; i < paints.length; i++) {
+    const p = paints[i] as Record<string, unknown>;
+    if (p.type !== "SOLID") {
+      out.push({ type: p.type, visible: p.visible ?? true });
+      continue;
+    }
+    const c = p.color as { r: number; g: number; b: number };
+    const boundColor = (boundArr[i] as Record<string, unknown> | undefined)?.color;
+    out.push({
+      type: "SOLID",
+      hex: rgbToHex(c.r, c.g, c.b),
+      opacity: (p.opacity as number) ?? 1,
+      visible: (p.visible as boolean) ?? true,
+      boundVariable: await resolveVarRef(boundColor)
+    });
+  }
+  return out;
+}
+
+// ─── Deep anatomy: auto-layout serialiser ─────────────────────────────────────
+async function serialiseLayoutDeep(n: Record<string, unknown>, bound: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  if (n.layoutMode === undefined) return null;
+  return {
+    layoutMode: n.layoutMode ?? "NONE",
+    primaryAxisAlignItems: n.primaryAxisAlignItems ?? "MIN",
+    counterAxisAlignItems: n.counterAxisAlignItems ?? "MIN",
+    itemSpacing: n.itemSpacing ?? 0,
+    paddingTop: n.paddingTop ?? 0,
+    paddingRight: n.paddingRight ?? 0,
+    paddingBottom: n.paddingBottom ?? 0,
+    paddingLeft: n.paddingLeft ?? 0,
+    cornerRadius: typeof n.cornerRadius === "number" ? n.cornerRadius : null,
+    boundVariables: {
+      itemSpacing: await resolveVarRef(bound.itemSpacing),
+      paddingTop: await resolveVarRef(bound.paddingTop),
+      paddingRight: await resolveVarRef(bound.paddingRight),
+      paddingBottom: await resolveVarRef(bound.paddingBottom),
+      paddingLeft: await resolveVarRef(bound.paddingLeft),
+      cornerRadius: await resolveVarRef(bound.cornerRadius)
+    }
+  };
+}
+
+// ─── Deep anatomy: text layer serialiser ──────────────────────────────────────
+async function serialiseTextDeep(node: TextNode, bound: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const lineHeight = node.lineHeight;
+  const letterSpacing = node.letterSpacing;
+  return {
+    characters: node.characters,
+    textStyleId: typeof node.textStyleId === "string" ? node.textStyleId : "",
+    fontSize: typeof node.fontSize === "number" ? node.fontSize : null,
+    fontName: (typeof node.fontName === "object" && node.fontName && "family" in node.fontName) ? node.fontName : null,
+    lineHeight: (typeof lineHeight === "object" && lineHeight && "value" in lineHeight) ? (lineHeight as { value: number }).value : null,
+    letterSpacing: (typeof letterSpacing === "object" && letterSpacing && "value" in letterSpacing) ? (letterSpacing as { value: number }).value : null,
+    boundVariables: {
+      fontSize: await resolveVarRef(bound.fontSize),
+      lineHeight: await resolveVarRef(bound.lineHeight),
+      letterSpacing: await resolveVarRef(bound.letterSpacing),
+      fontWeight: await resolveVarRef(bound.fontWeight)
+    }
+  };
+}
+
+// ─── Deep anatomy: recursive layer walker ─────────────────────────────────────
+async function serialiseLayerDeep(node: SceneNode): Promise<Record<string, unknown>> {
+  const n = node as unknown as Record<string, unknown>;
+  const bound = (n.boundVariables as Record<string, unknown>) ?? {};
+  const layer: Record<string, unknown> = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    visible: node.visible
+  };
+
+  const layout = await serialiseLayoutDeep(n, bound);
+  if (layout) layer.layout = layout;
+
+  if (Array.isArray(n.fills)) {
+    layer.fills = await serialisePaintsDeep(n.fills, bound.fills);
+  }
+  if (Array.isArray(n.strokes) && (n.strokes as unknown[]).length > 0) {
+    layer.strokes = await serialisePaintsDeep(n.strokes, bound.strokes);
+    layer.strokeWeight = n.strokeWeight ?? null;
+  }
+  if (node.type === "TEXT") {
+    layer.text = await serialiseTextDeep(node as TextNode, bound);
+  }
+  if ("children" in node) {
+    const children: Record<string, unknown>[] = [];
+    for (const child of (node as ChildrenMixin).children) {
+      children.push(await serialiseLayerDeep(child as SceneNode));
+    }
+    layer.children = children;
+  }
+  return layer;
+}
+
+// ─── Deep anatomy: platform behaviour convention parser ───────────────────────
+// Designers add lines like "Web: ..." / "iOS: ..." / "Android: ..." to a
+// component set's description in Figma; we lift them into structured
+// platform guidance instead of leaving them as free text.
+function parsePlatformGuidance(description: string): { web: string; ios: string; android: string } {
+  const guidance = { web: "", ios: "", android: "" };
+  const patterns: [keyof typeof guidance, RegExp][] = [
+    ["web", /^web\s*:\s*/i],
+    ["ios", /^ios\s*:\s*/i],
+    ["android", /^android\s*:\s*/i]
+  ];
+  for (const rawLine of description.split("\n")) {
+    const line = rawLine.trim();
+    for (const [key, re] of patterns) {
+      if (re.test(line)) {
+        guidance[key] = line.replace(re, "").trim();
+      }
+    }
+  }
+  return guidance;
+}
+
+// ─── Deep anatomy: per-variant component-set serialiser ───────────────────────
+async function serialiseComponentSetDeep(node: ComponentSetNode): Promise<Record<string, unknown>> {
+  const variantNodes = (node.children ?? []).filter((c): c is ComponentNode => c.type === "COMPONENT");
+  const variants: Record<string, unknown>[] = [];
+  for (const v of variantNodes) {
+    variants.push({
+      id: v.id,
+      key: v.key,
+      name: v.name,
+      variantProperties: v.variantProperties ?? {},
+      anatomy: await serialiseLayerDeep(v)
+    });
+  }
+  return {
+    id: node.id,
+    key: node.key,
+    name: node.name,
+    type: node.type,
+    description: node.description || "",
+    platformGuidance: parsePlatformGuidance(node.description || ""),
+    componentPropertyDefinitions: node.componentPropertyDefinitions ?? {},
+    variantGroupProperties: node.variantGroupProperties ?? {},
+    variants
+  };
+}
+
 // ─── Export SVG for a single node ─────────────────────────────────────────────
 async function exportSvgFromNode(node: SceneNode): Promise<string> {
   try {
@@ -301,15 +478,21 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     message: "chore: sync components.json" + tag + tag
   });
 
-  // ── component-anatomy.json
+  // ── component-anatomy.json (deep: full per-variant layer tree + bound variables)
+  onProgress("Building deep component anatomy (" + componentSets.length + " components)…");
+  const deepAnatomyComponents: Record<string, unknown>[] = [];
+  for (let i = 0; i < componentSets.length; i++) {
+    onProgress("Anatomy " + (i + 1) + "/" + componentSets.length + ": " + componentSets[i].name + "…");
+    deepAnatomyComponents.push(await serialiseComponentSetDeep(componentSets[i]));
+  }
   files.push({
     path: "docs/figma-make/component-anatomy.json",
     content: JSON.stringify({
-      schema: "thread.ds.component-anatomy.v2",
+      schema: "thread.ds.component-anatomy.v3",
       generatedAt: now,
       source: { fileKey: "", fileName: figma.root.name },
-      detailLevel: "lite",
-      components: componentsData
+      detailLevel: "full",
+      components: deepAnatomyComponents
     }, null, 2),
     message: "chore: sync component-anatomy.json" + tag + tag
   });
@@ -386,7 +569,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
   const groupMap: Record<string, { id: string; key: string; name: string; type: string; description: string; svgString: string }[]> = {};
   for (let i = 0; i < iconSets.length; i++) {
     const node = iconSets[i];
-    const groupId = node.name.split("/")[0].toLowerCase().replace(/s+/g, "-");
+    const groupId = node.name.split("/")[0].toLowerCase().replace(/\s+/g, "-");
     onProgress("Icon SVG " + (i + 1) + "/" + iconSets.length + ": " + node.name + "…");
     const svgString = await exportSvg(node);
     if (!groupMap[groupId]) groupMap[groupId] = [];
@@ -420,6 +603,25 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     });
   }
 
+  // ── token-audit.json (automated — every component set, not just the current selection)
+  onProgress("Running token audit across all components…");
+  const tokenAuditIssues: AuditIssue[] = [];
+  for (const set of componentSets) {
+    for (const variant of set.children) {
+      walkAndAudit(variant as SceneNode, new Set<string>(), tokenAuditIssues);
+    }
+  }
+  files.push({
+    path: "docs/figma-make/token-audit.json",
+    content: JSON.stringify({
+      schema: "thread.ds.token-audit.v1",
+      generatedAt: now,
+      issueCount: tokenAuditIssues.length,
+      issues: tokenAuditIssues
+    }, null, 2),
+    message: "chore: sync token-audit.json" + tag + tag
+  });
+
 // ── Pull last-published token/text-style data for design-contract.json
   onProgress("Fetching published token data for design-contract.json…");
   const variables = (await fetchGithubJson<{ collections: object[]; modes: object[]; variables: object[] }>(
@@ -442,7 +644,8 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
         componentRenderSpecs: "docs/figma-make/component-render-specs.json",
         textStyles: "docs/figma-make/text-styles.json",
         icons: "docs/figma-make/icons.json",
-        iconsIndex: "docs/figma-make/icons.index.json"
+        iconsIndex: "docs/figma-make/icons.index.json",
+        tokenAudit: "docs/figma-make/token-audit.json"
       },
       summary: {
         collections: variables.collections.length,
@@ -453,7 +656,8 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
         component_render_specs: componentSets.length,
         text_styles: textStyles.length,
         icons: iconSets.length,
-        icon_groups: Object.keys(groupMap).length
+        icon_groups: Object.keys(groupMap).length,
+        token_audit_issues: tokenAuditIssues.length
       },
       data: {
         collections: variables.collections,
