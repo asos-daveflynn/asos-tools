@@ -5,6 +5,20 @@ function toBase64(str) {
     const bytes = [];
     for (let i = 0; i < str.length; i++) {
         const c = str.charCodeAt(i);
+        // Surrogate pair (e.g. emoji) — combine into one code point and emit
+        // a 4-byte UTF-8 sequence instead of encoding each half separately.
+        if (c >= 0xd800 && c <= 0xdbff && i + 1 < str.length) {
+            const low = str.charCodeAt(i + 1);
+            if (low >= 0xdc00 && low <= 0xdfff) {
+                const codePoint = 0x10000 + (c - 0xd800) * 0x400 + (low - 0xdc00);
+                bytes.push(240 | (codePoint >> 18));
+                bytes.push(128 | ((codePoint >> 12) & 63));
+                bytes.push(128 | ((codePoint >> 6) & 63));
+                bytes.push(128 | (codePoint & 63));
+                i++;
+                continue;
+            }
+        }
         if (c < 128) {
             bytes.push(c);
         }
@@ -62,6 +76,12 @@ function fromBase64(b64) {
         else if (b0 >> 4 === 0b1110) {
             const b1 = bytes[i++], b2 = bytes[i++];
             out += String.fromCharCode(((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f));
+        }
+        else if (b0 >> 3 === 0b11110) {
+            const b1 = bytes[i++], b2 = bytes[i++], b3 = bytes[i++];
+            const codePoint = ((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f);
+            const adjusted = codePoint - 0x10000;
+            out += String.fromCharCode(0xd800 + (adjusted >> 10), 0xdc00 + (adjusted & 0x3ff));
         }
     }
     return out;
