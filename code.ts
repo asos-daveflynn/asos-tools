@@ -275,7 +275,7 @@ async function buildDesignContract(
         modes: variables.modes
       }
     }, null, 2),
-    message: "chore: sync design-contract.json" + tag + tag
+    message: "chore: sync design-contract.json" + tag
   };
 }
 
@@ -605,7 +605,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     files.push({
       path: "packages/tokens/exports/figma-variables.json",
       content: JSON.stringify(variables, null, 2),
-      message: "chore: sync figma variables" + tag + tag
+      message: "chore: sync figma variables" + tag
     });
 
     onProgress("Exporting text styles…");
@@ -613,7 +613,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     files.push({
       path: "docs/figma-make/text-styles.json",
       content: JSON.stringify(textStyles, null, 2),
-      message: "chore: sync text-styles.json" + tag + tag
+      message: "chore: sync text-styles.json" + tag
     });
 
     onProgress("Refreshing design-contract.json…");
@@ -634,7 +634,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
     files.push({
       path: "docs/figma-make/icons.json",
       content: JSON.stringify(iconsData, null, 2),
-      message: "chore: sync icons.json" + tag + tag
+      message: "chore: sync icons.json" + tag
     });
 
     onProgress("Building icon groups…");
@@ -664,14 +664,14 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
         total: iconSets.length,
         groups: indexGroups
       }, null, 2),
-      message: "chore: sync icons.index.json" + tag + tag
+      message: "chore: sync icons.index.json" + tag
     });
 
     for (const [groupId, icons] of Object.entries(groupMap)) {
       files.push({
         path: "docs/figma-make/icons/groups/" + groupId + ".json",
         content: JSON.stringify(icons, null, 2),
-        message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
+        message: "chore: sync icons/groups/" + groupId + ".json" + tag
       });
     }
 
@@ -695,7 +695,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
   files.push({
     path: "docs/figma-make/components.json",
     content: JSON.stringify(componentsData, null, 2),
-    message: "chore: sync components.json" + tag + tag
+    message: "chore: sync components.json" + tag
   });
 
   // ── component-anatomy.json (deep: full per-variant layer tree + bound variables)
@@ -714,7 +714,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
       detailLevel: "full",
       components: deepAnatomyComponents
     }, null, 2),
-    message: "chore: sync component-anatomy.json" + tag + tag
+    message: "chore: sync component-anatomy.json" + tag
   });
 
   // ── component-render-specs.json (with per-variant SVG thumbnails)
@@ -772,7 +772,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
       note: "Full render spec: per-variant SVG thumbnails + variant metadata.",
       components: renderSpecComponents
     }, null, 2),
-    message: "chore: sync component-render-specs.json" + tag + tag
+    message: "chore: sync component-render-specs.json" + tag
   });
 
   // ── token-audit.json (automated — every component set, not just the current selection)
@@ -791,7 +791,7 @@ async function buildAllPayloads(settings: Settings, syncVersion: number, onProgr
       issueCount: tokenAuditIssues.length,
       issues: tokenAuditIssues
     }, null, 2),
-    message: "chore: sync token-audit.json" + tag + tag
+    message: "chore: sync token-audit.json" + tag
   });
 
   onProgress("Refreshing design-contract.json…");

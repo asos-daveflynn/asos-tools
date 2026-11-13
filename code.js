@@ -234,7 +234,7 @@ async function buildDesignContract(settings, now, tag, local) {
                 modes: variables.modes
             }
         }, null, 2),
-        message: "chore: sync design-contract.json" + tag + tag
+        message: "chore: sync design-contract.json" + tag
     };
 }
 async function fetchGithubJson(settings, path) {
@@ -565,14 +565,14 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
         files.push({
             path: "packages/tokens/exports/figma-variables.json",
             content: JSON.stringify(variables, null, 2),
-            message: "chore: sync figma variables" + tag + tag
+            message: "chore: sync figma variables" + tag
         });
         onProgress("Exporting text styles…");
         const textStyles = await exportTextStyles();
         files.push({
             path: "docs/figma-make/text-styles.json",
             content: JSON.stringify(textStyles, null, 2),
-            message: "chore: sync text-styles.json" + tag + tag
+            message: "chore: sync text-styles.json" + tag
         });
         onProgress("Refreshing design-contract.json…");
         files.push(await buildDesignContract(settings, now, tag, { variables, textStyles }));
@@ -589,7 +589,7 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
         files.push({
             path: "docs/figma-make/icons.json",
             content: JSON.stringify(iconsData, null, 2),
-            message: "chore: sync icons.json" + tag + tag
+            message: "chore: sync icons.json" + tag
         });
         onProgress("Building icon groups…");
         const groupMap = {};
@@ -617,13 +617,13 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
                 total: iconSets.length,
                 groups: indexGroups
             }, null, 2),
-            message: "chore: sync icons.index.json" + tag + tag
+            message: "chore: sync icons.index.json" + tag
         });
         for (const [groupId, icons] of Object.entries(groupMap)) {
             files.push({
                 path: "docs/figma-make/icons/groups/" + groupId + ".json",
                 content: JSON.stringify(icons, null, 2),
-                message: "chore: sync icons/groups/" + groupId + ".json" + tag + tag
+                message: "chore: sync icons/groups/" + groupId + ".json" + tag
             });
         }
         onProgress("Refreshing design-contract.json…");
@@ -643,7 +643,7 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
     files.push({
         path: "docs/figma-make/components.json",
         content: JSON.stringify(componentsData, null, 2),
-        message: "chore: sync components.json" + tag + tag
+        message: "chore: sync components.json" + tag
     });
     // ── component-anatomy.json (deep: full per-variant layer tree + bound variables)
     onProgress("Building deep component anatomy (" + componentSets.length + " components)…");
@@ -661,7 +661,7 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
             detailLevel: "full",
             components: deepAnatomyComponents
         }, null, 2),
-        message: "chore: sync component-anatomy.json" + tag + tag
+        message: "chore: sync component-anatomy.json" + tag
     });
     // ── component-render-specs.json (with per-variant SVG thumbnails)
     onProgress("Exporting component SVG thumbnails…");
@@ -710,7 +710,7 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
             note: "Full render spec: per-variant SVG thumbnails + variant metadata.",
             components: renderSpecComponents
         }, null, 2),
-        message: "chore: sync component-render-specs.json" + tag + tag
+        message: "chore: sync component-render-specs.json" + tag
     });
     // ── token-audit.json (automated — every component set, not just the current selection)
     onProgress("Running token audit across all components…");
@@ -728,7 +728,7 @@ async function buildAllPayloads(settings, syncVersion, onProgress) {
             issueCount: tokenAuditIssues.length,
             issues: tokenAuditIssues
         }, null, 2),
-        message: "chore: sync token-audit.json" + tag + tag
+        message: "chore: sync token-audit.json" + tag
     });
     onProgress("Refreshing design-contract.json…");
     files.push(await buildDesignContract(settings, now, tag, {
