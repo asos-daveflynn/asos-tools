@@ -1,4 +1,46 @@
 "use strict";
+// ─── Target branch ───────────────────────────────────────────────────────────
+const DEFAULT_TARGET_BRANCH = "thread-ds-sync";
+const BASE_BRANCH = "main";
+function normaliseBranch(name) {
+    let n = (name || "").trim();
+    if (n.indexOf("refs/heads/") === 0)
+        n = n.slice("refs/heads/".length);
+    return n;
+}
+// Returns an error message, or null if the name is acceptable.
+function validateBranchName(name) {
+    if (!name)
+        return "Target branch can't be empty.";
+    if (!/^[A-Za-z0-9._\/-]+$/.test(name))
+        return "Invalid branch name '" + name + "': use only letters, numbers, '.', '_', '-' and '/'.";
+    if (/^[-.\/]/.test(name))
+        return "Invalid branch name '" + name + "': can't start with '-', '.' or '/'.";
+    if (/[\/.]$/.test(name))
+        return "Invalid branch name '" + name + "': can't end with '/' or '.'.";
+    if (name.indexOf("..") !== -1)
+        return "Invalid branch name '" + name + "': can't contain '..'.";
+    if (name.indexOf("//") !== -1)
+        return "Invalid branch name '" + name + "': can't contain '//'.";
+    if (/\.lock$/.test(name))
+        return "Invalid branch name '" + name + "': can't end with '.lock'.";
+    return null;
+}
+function isMainBranch(name) {
+    return normaliseBranch(name).toLowerCase() === "main";
+}
+function resolveTargetBranch(settings) {
+    let branch = normaliseBranch(settings.branch);
+    if (!branch)
+        branch = DEFAULT_TARGET_BRANCH;
+    const err = validateBranchName(branch);
+    if (err)
+        throw new Error(err);
+    if (isMainBranch(branch) && !settings.allowMain) {
+        throw new Error("Refusing to commit to main. Set a target branch in Settings, or switch on 'Allow committing to main' if you really mean it.");
+    }
+    return branch;
+}
 // ─── Base64 (UTF-8 safe) ─────────────────────────────────────────────────────
 function toBase64(str) {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -86,8 +128,45 @@ function fromBase64(b64) {
     }
     return out;
 }
+// ─── GitHub branch ────────────────────────────────────────────────────────────
+// Makes sure the target branch exists, creating it from the tip of main if not.
+async function ensureBranch(settings, branch) {
+    if (isMainBranch(branch))
+        return { created: false };
+    const base = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/git/";
+    const headers = {
+        "Authorization": "Bearer " + settings.pat,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    };
+    const encoded = branch.split("/").map(encodeURIComponent).join("/");
+    const refRes = await fetch(base + "ref/heads/" + encoded, { method: "GET", headers });
+    if (refRes.status === 200)
+        return { created: false };
+    if (refRes.status !== 404) {
+        throw new Error("Could not check branch '" + branch + "' (GitHub " + refRes.status + ").");
+    }
+    const mainRes = await fetch(base + "ref/heads/" + BASE_BRANCH, { method: "GET", headers });
+    if (!mainRes.ok) {
+        throw new Error("Could not read '" + BASE_BRANCH + "' to create branch '" + branch + "' (GitHub " + mainRes.status + ").");
+    }
+    const sha = (await mainRes.json()).object.sha;
+    const createRes = await fetch(base + "refs", {
+        method: "POST",
+        headers: Object.assign(Object.assign({}, headers), { "Content-Type": "application/json" }),
+        body: JSON.stringify({ ref: "refs/heads/" + branch, sha })
+    });
+    if (createRes.ok)
+        return { created: true };
+    if (createRes.status === 422)
+        return { created: false }; // already exists (e.g. created in parallel)
+    throw new Error("Could not create branch '" + branch + "' (GitHub " + createRes.status + "): " + (await createRes.text()));
+}
 // ─── GitHub PUT ───────────────────────────────────────────────────────────────
 async function githubPut(settings, file) {
+    if (isMainBranch(settings.branch) && !settings.allowMain) {
+        throw new Error("Refusing to commit to main. Switch on 'Allow committing to main' in Settings if you really mean it.");
+    }
     const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + file.path;
     const headers = {
         "Authorization": "Bearer " + settings.pat,
@@ -96,7 +175,7 @@ async function githubPut(settings, file) {
         "X-GitHub-Api-Version": "2022-11-28"
     };
     let sha;
-    const getRes = await fetch(url, { method: "GET", headers });
+    const getRes = await fetch(url + "?ref=" + encodeURIComponent(settings.branch), { method: "GET", headers });
     if (getRes.ok) {
         sha = (await getRes.json()).sha;
     }
@@ -159,7 +238,7 @@ async function buildDesignContract(settings, now, tag, local) {
     };
 }
 async function fetchGithubJson(settings, path) {
-    const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + path + "?ref=" + settings.branch;
+    const url = "https://api.github.com/repos/" + settings.owner + "/" + settings.repo + "/contents/" + path + "?ref=" + encodeURIComponent(settings.branch);
     const res = await fetch(url, {
         headers: {
             "Authorization": "Bearer " + settings.pat,
@@ -1010,18 +1089,23 @@ async function main() {
                 return;
             }
             try {
+                const targetBranch = resolveTargetBranch(settings);
+                figma.ui.postMessage({ type: "SYNC_PROGRESS", message: "Target branch: " + targetBranch });
+                const { created } = await ensureBranch(settings, targetBranch);
+                figma.ui.postMessage({ type: "SYNC_PROGRESS", message: created ? "Created branch " + targetBranch + " from " + BASE_BRANCH : "Using existing branch " + targetBranch });
+                const syncSettings = Object.assign(Object.assign({}, settings), { branch: targetBranch });
                 const prevVersion = (_a = await figma.clientStorage.getAsync("syncVersion")) !== null && _a !== void 0 ? _a : 0;
                 const syncVersion = prevVersion + 1;
                 await figma.clientStorage.setAsync("syncVersion", syncVersion);
-                const files = await buildAllPayloads(settings, syncVersion, (message) => {
+                const files = await buildAllPayloads(syncSettings, syncVersion, (message) => {
                     figma.ui.postMessage({ type: "SYNC_PROGRESS", message });
                 });
                 const total = files.length;
                 for (let i = 0; i < files.length; i++) {
                     figma.ui.postMessage({ type: "SYNC_PROGRESS", message: "Pushing " + (i + 1) + "/" + total + ": " + files[i].path.split("/").pop() + "…" });
-                    await githubPut(settings, files[i]);
+                    await githubPut(syncSettings, files[i]);
                 }
-                figma.ui.postMessage({ type: "SYNC_OK", count: total, syncVersion });
+                figma.ui.postMessage({ type: "SYNC_OK", count: total, syncVersion, branch: targetBranch, createdBranch: created });
             }
             catch (e) {
                 figma.ui.postMessage({ type: "SYNC_ERR", error: String(e) });

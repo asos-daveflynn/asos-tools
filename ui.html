@@ -907,8 +907,14 @@
         </div>
 
         <div class="field">
-          <label class="field-label">Branch</label>
-          <input type="text" id="inp-branch" placeholder="main" autocomplete="off" autocorrect="off" spellcheck="false" />
+          <label class="field-label">Target branch</label>
+          <input type="text" id="inp-branch" placeholder="thread-ds-sync" autocomplete="off" autocorrect="off" spellcheck="false" />
+          <div class="field-hint">Syncs are committed here. If it doesn't exist it's created from main. Defaults to thread-ds-sync — never main.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="inp-allow-main" style="accent-color:var(--purple);width:13px;height:13px;"> Allow committing to main</label>
+          <div class="field-hint">Off by default. Only switch on if you really want syncs to land directly on main.</div>
         </div>
 
         <button class="btn btn-primary" id="btn-save">Save</button>
@@ -966,11 +972,18 @@
         pat: document.getElementById('inp-pat').value.trim(),
         owner: document.getElementById('inp-owner').value.trim(),
         repo: document.getElementById('inp-repo').value.trim(),
-        branch: document.getElementById('inp-branch').value.trim() || 'main'
+        branch: document.getElementById('inp-branch').value.trim() || 'thread-ds-sync',
+        allowMain: document.getElementById('inp-allow-main').checked
       };
       if (!settings.pat || !settings.owner || !settings.repo) {
         const el = document.getElementById('settings-status');
         el.textContent = 'Token, organisation and repository are all required.';
+        el.className = 'status-msg err';
+        return;
+      }
+      if (settings.branch.replace(/^refs\/heads\//, '').toLowerCase() === 'main' && !settings.allowMain) {
+        const el = document.getElementById('settings-status');
+        el.textContent = "Target branch can't be main unless 'Allow committing to main' is switched on.";
         el.className = 'status-msg err';
         return;
       }
@@ -1433,7 +1446,8 @@
           document.getElementById('inp-pat').value = msg.settings.pat || '';
           document.getElementById('inp-owner').value = msg.settings.owner || '';
           document.getElementById('inp-repo').value = msg.settings.repo || '';
-          document.getElementById('inp-branch').value = msg.settings.branch || 'main';
+          document.getElementById('inp-branch').value = msg.settings.branch || 'thread-ds-sync';
+          document.getElementById('inp-allow-main').checked = !!msg.settings.allowMain;
           if (!msg.settings.pat) openScreen('settings', 'Settings');
         } else {
           openScreen('settings', 'Settings');
@@ -1459,7 +1473,7 @@
         document.getElementById('sync-progress-fill').style.width = '100%';
         document.getElementById('sync-status').textContent = 'Done';
         const el = document.getElementById('sync-status-final');
-        el.textContent = '✓ Published — ' + msg.count + ' files updated (sync #' + msg.syncVersion + ')';
+        el.textContent = '✓ Published to ' + msg.branch + ' — ' + msg.count + ' files updated (sync #' + msg.syncVersion + ')' + (msg.createdBranch ? ' · new branch created from main' : '');
         el.className = 'status-msg ok';
       }
 
